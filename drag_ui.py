@@ -60,6 +60,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
+            save_dir = gr.Textbox(value="./results", label="Save path")
             lora_status_bar = gr.Textbox(label="display LoRA training status")
 
         # algorithm specific parameters
@@ -89,6 +90,7 @@ with gr.Blocks() as demo:
                     label="Diffusion Model Path",
                     choices=[
                         "runwayml/stable-diffusion-v1-5",
+                        "stabilityai/stable-diffusion-2-1",
                     ] + local_models_choice
                 )
                 vae_path = gr.Dropdown(value="default",
@@ -96,6 +98,7 @@ with gr.Blocks() as demo:
                     choices=["default",
                     "stabilityai/sd-vae-ft-mse"] + local_models_choice
                 )
+                ft_layer_idx = gr.CheckboxGroup(value=[3],choices=[0,1,2,3],label="Upsample feature layer index", info = "3 for sdv1-5, 2 or 3 for sdv2-1")
 
         with gr.Tab("LoRA Parameters"):
             with gr.Row():
@@ -261,6 +264,8 @@ with gr.Blocks() as demo:
         lora_path,
         start_step,
         start_layer,
+        save_dir,
+        ft_layer_idx,
         ],
         [output_image]
     )

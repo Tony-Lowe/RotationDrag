@@ -2,6 +2,8 @@ name: dragdiff
 channels:
   - pytorch
   - defaults
+  - nvidia
+  - conda-forge
 dependencies:
   - python=3.8.5
   - pip=22.3.1
