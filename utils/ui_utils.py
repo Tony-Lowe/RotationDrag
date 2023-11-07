@@ -212,7 +212,7 @@ def run_drag(source_image,
     args.n_inference_step = 50
     args.n_actual_inference_step = round(inversion_strength * args.n_inference_step)
     args.guidance_scale = 1.0
-
+    unet_feature_idx.sort()
     args.unet_feature_idx = unet_feature_idx
 
     args.r_m = 1
@@ -475,7 +475,7 @@ def run_drag_gen(
     args.n_inference_step = n_inference_step
     args.n_actual_inference_step = round(n_inference_step * inversion_strength)
     args.guidance_scale = guidance_scale
-
+    unet_feature_idx.sort()
     args.unet_feature_idx = unet_feature_idx
 
     full_h, full_w = source_image.shape[:2]
