@@ -98,7 +98,7 @@ with gr.Blocks() as demo:
                     choices=["default",
                     "stabilityai/sd-vae-ft-mse"] + local_models_choice
                 )
-                ft_layer_idx = gr.CheckboxGroup(value=[3],choices=[0,1,2,3],label="Upsample feature layer index", info = "3 for sdv1-5, 2 or 3 for sdv2-1")
+                ft_layer_idx = gr.CheckboxGroup(value=[3],choices=[0,1,2,3,4],label="Upsample feature layer index", info = "Starts from 1. 0 stands for mid block feature. 3 is default for sdv1-5")
 
         with gr.Tab("LoRA Parameters"):
             with gr.Row():
