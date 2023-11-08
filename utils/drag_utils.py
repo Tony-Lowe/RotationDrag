@@ -290,19 +290,18 @@ def free_drag_update(model,
     for idx in range(point_pairs_number):
         template_feature.append(interpolate_feature_patch_plus(F0,handle_points[idx:]+offset_matrix))
     step_num = 0
-    current_targets = handle_points.clone().to(args.device) # TODO: remember to add and check args !!!!
+    current_targets = handle_points.clone().to(args.device)
     current_feature_map = F0.detach()
     sign_points= torch.zeros(point_pairs_number).to(args.device) # determiner if the localization point is closest to target point
     loss_ini = torch.zeros(point_pairs_number).to(args.device)
     loss_end = torch.zeros(point_pairs_number).to(args.device) 
-    step_threshold = args.n_pix_step
-    # TODO: implement motion supervision and fuzzy localizaiton 
+    step_threshold = args.n_pix_step 
     while step_num<args.n_pix_step:
         if torch.all(sign_points==1):
             yield latent_input
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
-                                             current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l) # TODO: args add these
+                                             current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l)
         print('current_targets',current_targets)
         d_remain = (current_targets-target_points).pow(2).sum(dim=1).pow(0.5)
         for step in range(5):
@@ -331,13 +330,13 @@ def free_drag_update(model,
             optimizer.step()
             optimizer.zero_grad()
             
-            if step_num%args.sample_interval==0: # TODO: Remember to add args
+            if step_num%args.sample_interval==0:
                 yield latent_input
             
             if step == 0:
                 loss_ini = loss_supervised
 
-            if loss_supervised.max()<0.5*args.threshold_l: # TODO: Remember to add args
+            if loss_supervised.max()<0.5*args.threshold_l:
                 break
             
             if step_num == args.n_pix_step or step_num>step_threshold+10:

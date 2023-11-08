@@ -37,7 +37,7 @@ from drag_pipeline import DragPipeline
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
 
-from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen
+from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen, free_drag_update
 from .lora_utils import train_lora
 from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
@@ -55,6 +55,12 @@ def clear_all_gen(length=480):
         gr.Image.update(value=None, height=length, width=length), \
         gr.Image.update(value=None, height=length, width=length), \
         [], None, None, None
+
+def clear_all_free(length=480):
+    return gr.Image.update(value=None, height=length, width=length), \
+        gr.Image.update(value=None, height=length, width=length), \
+        gr.Image.update(value=None, height=length, width=length), \
+        [], None, None
 
 def mask_image(image,
                mask,
@@ -105,6 +111,23 @@ def store_img_gen(img):
     # when new image is uploaded, `selected_points` should be empty
     return image, [], masked_img, mask
 
+def store_img_free(img, length=512):
+    image, mask = img["image"], np.float32(img["mask"][:, :, 0]) / 255.
+    height,width,_ = image.shape
+    image = Image.fromarray(image)
+    image = exif_transpose(image)
+    image = image.resize((length,int(length*height/width)), PIL.Image.BILINEAR)
+    mask  = cv2.resize(mask, (length,int(length*height/width)), interpolation=cv2.INTER_NEAREST)
+    image = np.array(image)
+
+    if mask.sum() > 0:
+        mask = np.uint8(mask > 0)
+        masked_img = mask_image(image, 1 - mask, color=[0, 0, 0], alpha=0.3)
+    else:
+        masked_img = image.copy()
+    # when new image is uploaded, `selected_points` should be empty
+    return image, [], masked_img, mask
+
 # user click the image to get points, and show the points on the image
 def get_points(img,
                sel_pix,
@@ -140,6 +163,29 @@ def undo_points(original_image,
 
 # ----------- dragging user-input image utils -----------
 def train_lora_interface(original_image,
+                         prompt,
+                         model_path,
+                         vae_path,
+                         lora_path,
+                         lora_step,
+                         lora_lr,
+                         lora_batch_size,
+                         lora_rank,
+                         progress=gr.Progress()):
+    train_lora(
+        original_image,
+        prompt,
+        model_path,
+        vae_path,
+        lora_path,
+        lora_step,
+        lora_lr,
+        lora_batch_size,
+        lora_rank,
+        progress)
+    return "Training LoRA Done!"
+
+def train_lora_interface_free(original_image,
                          prompt,
                          model_path,
                          vae_path,
@@ -319,6 +365,171 @@ def run_drag(source_image,
     return out_image
 
 # -------------------------------------------------------
+
+def run_freedrag(source_image,
+             image_with_clicks,
+             mask,
+             prompt,
+             points,
+             inversion_strength,
+             lam,
+             latent_lr,
+             n_pix_step,
+             model_path,
+             vae_path,
+             lora_path,
+             start_step,
+             start_layer,
+             l_expected,
+             d_max,
+             sample_interval,
+             save_dir="./results",
+             unet_feature_idx=[3],
+    ):
+    # initialize model
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    scheduler = DDIMScheduler(beta_start=0.00085, beta_end=0.012,
+                          beta_schedule="scaled_linear", clip_sample=False,
+                          set_alpha_to_one=False, steps_offset=1)
+    model = DragPipeline.from_pretrained(model_path, scheduler=scheduler).to(device)
+    # call this function to override unet forward function,
+    # so that intermediate features are returned after forward
+    model.modify_unet_forward()
+
+    # set vae
+    if vae_path != "default":
+        model.vae = AutoencoderKL.from_pretrained(
+            vae_path
+        ).to(model.vae.device, model.vae.dtype)
+
+    # initialize parameters
+    seed = 42 # random seed used by a lot of people for unknown reason
+    seed_everything(seed)
+
+    args = SimpleNamespace()
+    args.prompt = prompt
+    args.points = points
+    args.n_inference_step = 50
+    args.n_actual_inference_step = round(inversion_strength * args.n_inference_step)
+    args.guidance_scale = 1.0
+    unet_feature_idx.sort()
+    args.unet_feature_idx = unet_feature_idx
+
+    args.r_m = 1
+    args.r_p = 3
+    args.lam = lam
+
+    args.lr = latent_lr
+    args.n_pix_step = n_pix_step
+
+    full_h, full_w = source_image.shape[:2]
+    args.sup_res_h = int(0.5*full_h)
+    args.sup_res_w = int(0.5*full_w)
+
+    # freedrag added
+    # %---------------------%
+    args.device = device
+
+    args.l_expected = l_expected
+    args.dmax = d_max
+    args.sample_interval=sample_interval
+    args.threshhold_l = 0.5 * l_expected
+    args.aa = torch.log(torch.tensor(9.0,device=device))/(0.6*l_expected)
+    args.bb = 0.2*l_expected
+    # %---------------------%
+
+
+    print(args)
+
+    source_image = preprocess_image(source_image, device)
+    image_with_clicks = preprocess_image(image_with_clicks, device)
+
+    # set lora
+    if lora_path == "":
+        print("applying default parameters")
+        model.unet.set_default_attn_processor()
+    else:
+        print("applying lora: " + lora_path)
+        model.unet.load_attn_procs(lora_path)
+
+    # invert the source image
+    # the latent code resolution is too small, only 64*64
+    invert_code = model.invert(source_image,
+                               prompt,
+                               guidance_scale=args.guidance_scale,
+                               num_inference_steps=args.n_inference_step,
+                               num_actual_inference_steps=args.n_actual_inference_step)
+
+    mask = torch.from_numpy(mask).float() / 255.
+    mask[mask > 0.0] = 1.0
+    mask = rearrange(mask, "h w -> 1 1 h w").cuda()
+    mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
+
+    handle_points = []
+    target_points = []
+    # here, the point is in x,y coordinate
+    for idx, point in enumerate(points):
+        cur_point = torch.tensor([point[1]/full_h*args.sup_res_h, point[0]/full_w*args.sup_res_w])
+        cur_point = torch.round(cur_point)
+        if idx % 2 == 0:
+            handle_points.append(cur_point)
+        else:
+            target_points.append(cur_point)
+    print('handle points:', handle_points) # y,x (h,w)
+    print('target points:', target_points) # y,x (h,w)
+
+    init_code = invert_code
+    init_code_orig = deepcopy(init_code)
+    model.scheduler.set_timesteps(args.n_inference_step)
+    t = model.scheduler.timesteps[args.n_inference_step - args.n_actual_inference_step]
+
+    # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
+    # update according to the given supervision
+    for updated_init_code in  free_drag_update(model, init_code, t,
+        handle_points, target_points, mask, args):
+        # hijack the attention module
+        # inject the reference branch to guide the generation
+        editor = MutualSelfAttentionControl(start_step=start_step,
+                                        start_layer=start_layer,
+                                        total_steps=args.n_inference_step,
+                                        guidance_scale=args.guidance_scale)
+        if lora_path == "":
+            register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
+        else:
+            register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
+
+        # inference the synthesized image
+        gen_image = model(
+            prompt=args.prompt,
+            batch_size=2,
+            latents=torch.cat([init_code_orig, updated_init_code], dim=0),
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.n_inference_step,
+            num_actual_inference_steps=args.n_actual_inference_step
+            )[1].unsqueeze(dim=0)
+
+        # resize gen_image into the size of source_image
+        # we do this because shape of gen_image will be rounded to multipliers of 8
+        gen_image = F.interpolate(gen_image, (full_h, full_w), mode='bilinear')
+
+        # save the original image, user editing instructions, synthesized image
+        save_result = torch.cat([
+            source_image * 0.5 + 0.5,
+            torch.ones((1,3,full_h,25)).cuda(),
+            image_with_clicks * 0.5 + 0.5,
+            torch.ones((1,3,full_h,25)).cuda(),
+            gen_image[0:1]
+        ], dim=-1)
+        # print(save_dir)
+        if not os.path.isdir(save_dir):
+            os.mkdir(save_dir)
+        save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+        save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
+
+        out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
+        out_image = (out_image * 255).astype(np.uint8)
+        yield out_image
+
 
 # ----------- dragging generated image utils -----------
 # once the user generated an image
