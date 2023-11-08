@@ -53,6 +53,9 @@ def interpolate_feature_patch(feat,
                               y,
                               x,
                               r):
+    """
+    return: (B,C,2r+1,2r+1)
+    """
     x0 = torch.floor(x).long()
     x1 = x0 + 1
 
@@ -140,6 +143,109 @@ def drag_diffusion_update(model,
         optimizer.zero_grad()
 
     return init_code
+
+def get_each_point(current,target_final,L, feature_map,max_distance,template_feature,
+                    loss_initial,loss_end,position_local,threshold_l):
+    d_max = max_distance 
+    d_remain = (current-target_final).pow(2).sum().pow(0.5)
+    interval_number  = 10 # for point localization 
+    intervals = torch.arange(0,1+1/interval_number,1/interval_number,device = current.device)[1:].unsqueeze(1)
+
+    if loss_end < threshold_l:
+        target_max = current + min(d_max/(d_remain+1e-8),1)*(target_final-current) 
+        candidate_points = (1-intervals)*current.unsqueeze(0) + intervals*target_max.unsqueeze(0)
+        candidate_points_repeat = candidate_points.repeat_interleave(position_local.shape[0],dim=0)
+        position_local_repeat = position_local.repeat(intervals.shape[0],1)
+
+        candidate_points_local = candidate_points_repeat +position_local_repeat
+        features_all = get_features_plus(feature_map, candidate_points_local)
+
+        features_all = features_all.reshape((intervals.shape[0],-1))
+        dif_location = abs(features_all-template_feature.flatten(0).unsqueeze(0)).mean(1)
+        min_idx = torch.argmin(abs(dif_location-L))
+        current_best = candidate_points[min_idx,:]
+        return current_best
+    
+    elif loss_end<loss_initial:
+         return current
+
+    else:
+        current = current- min(d_max/(d_remain+1e-8),1)*(target_final-current) # rollback 
+        d_remain = (current-target_final).pow(2).sum().pow(0.5)
+        target_max = current + min(2*d_max/(d_remain+1e-8),1)*(target_final-current) # double the localization range
+
+        candidate_points = (1-intervals)*current.unsqueeze(0) + intervals*target_max.unsqueeze(0)
+        candidate_points_repeat = candidate_points.repeat_interleave(position_local.shape[0],dim=0)
+        position_local_repeat = position_local.repeat(intervals.shape[0],1)
+        candidate_points_local = candidate_points_repeat +position_local_repeat
+        features_all = get_features_plus(feature_map, candidate_points_local)
+        features_all = features_all.reshape((intervals.shape[0],-1))
+        dif_location = abs(features_all-template_feature.flatten(0).unsqueeze(0)).mean(1)
+        min_idx = torch.argmin(dif_location)   # l=0 in this case
+        current_best = candidate_points[min_idx,:]
+        return current_best
+
+def get_current_target(sign_points, current_target,target_point,L,feature_map,max_distance,template_feature,
+                       loss_initial,loss_end,threshold_l):
+     # L is the expectation
+     for k in range(target_point.shape[0]):
+         if sign_points[k] ==0: # sign_points ==0 means the remains distance to target point is larger than the preset threshold
+            current_target[k,:] = get_each_point(current_target[k,:],target_point[k,:],\
+                                L,feature_map,max_distance,template_feature[k],loss_initial[k], loss_end[k],threshold_l)
+     return current_target
+
+def get_xishu(loss_k,a,b): 
+    xishu = xishu = 1/(1+(a*(loss_k-b)).exp())
+    return xishu
+
+def free_drag_update(model,
+                          init_code,
+                          t,
+                          handle_points,
+                          target_points,
+                          mask,
+                          args):
+    """ 
+    :param init_code: latent
+    """
+    assert len(handle_points) == len(target_points), \
+        "number of handle point must equals target points"
+
+    text_emb = model.get_text_embeddings(args.prompt).detach()
+    # the init output feature of unet
+    with torch.no_grad():
+        unet_output, F0 = model.forward_unet_features(init_code, t, encoder_hidden_states=text_emb,
+            layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+        # F0 has all the feature from midblock to upblock 3
+        x_prev_0,_ = model.step(unet_output, t, init_code) # x_prev_0 is the sample you get when you don't drag
+        # init_code_orig = copy.deepcopy(init_code)
+    latent_trainable = init_code.detach().clone().requires_grad_(True)
+    latent_untrainable = init_code.detach().clone().requires_grad_(False)
+
+    optimizer = torch.optim.Adam([
+                    {'params':latent_trainable}
+                    ], lr=0.002,  eps=1e-08, weight_decay=0, amsgrad=False)
+    Loss_l1 = torch.nn.L1Loss()
+
+    point_pairs_number = target_points.shape[0]
+    template_feature = []
+
+    for idx in range(point_pairs_number):
+        template_feature.append(interpolate_feature_patch(F0,y=handle_points[idx,0],x=handle_points[idx,1],r=args.r_p))
+    step_num = 0
+    current_targets = handle_points.clone().to(args.device) # TODO: remember to add and check args !!!!
+    current_feature_map = F0.detach()
+    sign_points= torch.zeros(point_pairs_number).to(args.device) # determiner if the localization point is closest to target point
+    loss_ini = torch.zeros(point_pairs_number).to(args.device)
+    loss_end = torch.zeros(point_pairs_number).to(args.device) 
+    step_threshold = args.n_pix_step
+    # TODO: implement motion supervision and fuzzy localizaiton 
+    while step_num<args.n_pix_step:
+        if torch.all(sign_points==1):
+            yield init_code
+            break
+        current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
+                                             current_feature_map,args.dmax,template_feature,loss_ini,loss_end,args.thershold_l) # TODO: args add these
 
 def drag_diffusion_update_gen(model,
                               init_code,

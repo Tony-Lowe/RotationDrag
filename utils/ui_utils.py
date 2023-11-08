@@ -262,8 +262,8 @@ def run_drag(source_image,
             handle_points.append(cur_point)
         else:
             target_points.append(cur_point)
-    print('handle points:', handle_points)
-    print('target points:', target_points)
+    print('handle points:', handle_points) # y,x (h,w)
+    print('target points:', target_points) # y,x (h,w)
 
     init_code = invert_code
     init_code_orig = deepcopy(init_code)
