@@ -19,6 +19,7 @@
 import copy
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 
 def point_tracking(F0,
@@ -73,6 +74,33 @@ def interpolate_feature_patch(feat,
     Id = feat[:, :, y1-r:y1+r+1, x1-r:x1+r+1]
 
     return Ia * wa + Ib * wb + Ic * wc + Id * wd
+
+def interpolate_feature_patch_plus(feature, position):
+    # feature: (1,C,H,W)
+    # position: (N,2)
+    # return: (N,C)
+    device = feature.device
+
+    y = position[:,0]
+    x = position[:,1]
+
+    x0 = x.long()
+    x1 = x0+1
+    y0 = y.long()
+    y1 = y0+1
+    
+    wa = ((x1.float() - x) * (y1.float() - y)).to(device).unsqueeze(1).detach()
+    wb = ((x1.float() - x) * (y - y0.float())).to(device).unsqueeze(1).detach()
+    wc = ((x - x0.float()) * (y1.float() - y)).to(device).unsqueeze(1).detach()
+    wd = ((x - x0.float()) * (y - y0.float())).to(device).unsqueeze(1).detach()
+
+    Ia = feature[:, :, y0, x0].squeeze(0).transpose(1,0)
+    Ib = feature[:, :, y1, x0].squeeze(0).transpose(1,0)
+    Ic = feature[:, :, y0, x1].squeeze(0).transpose(1,0)
+    Id = feature[:, :, y1, x1].squeeze(0).transpose(1,0)
+
+    output = Ia * wa + Ib * wb + Ic * wc + Id * wd
+    return output
 
 def drag_diffusion_update(model,
                           init_code,
@@ -144,8 +172,28 @@ def drag_diffusion_update(model,
 
     return init_code
 
+
+def update_signs(sign_point_pairs, current_point, target_point,loss_supervised,threshold_d,threshold_l):
+    
+    distance = (current_point-target_point).pow(2).sum(dim=1).pow(0.5)
+    sign_point_pairs[distance<threshold_d]  = 1
+    sign_point_pairs[distance>=threshold_d] = 0
+    sign_point_pairs[loss_supervised>threshold_l] =0
+
+def get_offset_matrix(win_r,ft_ratio):
+    """
+    generate offset matrix near the point
+    :params win_r: window radius
+    :params ft_ratio: feature resolution / image resolution
+    """
+    k = torch.linspace(-(win_r*ft_ratio),win_r*ft_ratio,steps= win_r)
+    # k = torch.linspace(-(win_r//2),win_r//2,steps= win_r)
+    k1= k.repeat(win_r,1).transpose(1,0).flatten(0).unsqueeze(0)
+    k2= k.repeat(1,win_r)
+    return torch.cat((k1,k2),dim=0).transpose(1,0)
+
 def get_each_point(current,target_final,L, feature_map,max_distance,template_feature,
-                    loss_initial,loss_end,position_local,threshold_l):
+                    loss_initial,loss_end,offset_matrix,threshold_l):
     d_max = max_distance 
     d_remain = (current-target_final).pow(2).sum().pow(0.5)
     interval_number  = 10 # for point localization 
@@ -154,11 +202,11 @@ def get_each_point(current,target_final,L, feature_map,max_distance,template_fea
     if loss_end < threshold_l:
         target_max = current + min(d_max/(d_remain+1e-8),1)*(target_final-current) 
         candidate_points = (1-intervals)*current.unsqueeze(0) + intervals*target_max.unsqueeze(0)
-        candidate_points_repeat = candidate_points.repeat_interleave(position_local.shape[0],dim=0)
-        position_local_repeat = position_local.repeat(intervals.shape[0],1)
+        candidate_points_repeat = candidate_points.repeat_interleave(offset_matrix.shape[0],dim=0)
+        offset_matrix_repeat = offset_matrix.repeat(intervals.shape[0],1)
 
-        candidate_points_local = candidate_points_repeat +position_local_repeat
-        features_all = get_features_plus(feature_map, candidate_points_local)
+        candidate_points_local = candidate_points_repeat +offset_matrix_repeat
+        features_all = interpolate_feature_patch_plus(feature_map, candidate_points_local)
 
         features_all = features_all.reshape((intervals.shape[0],-1))
         dif_location = abs(features_all-template_feature.flatten(0).unsqueeze(0)).mean(1)
@@ -175,10 +223,10 @@ def get_each_point(current,target_final,L, feature_map,max_distance,template_fea
         target_max = current + min(2*d_max/(d_remain+1e-8),1)*(target_final-current) # double the localization range
 
         candidate_points = (1-intervals)*current.unsqueeze(0) + intervals*target_max.unsqueeze(0)
-        candidate_points_repeat = candidate_points.repeat_interleave(position_local.shape[0],dim=0)
-        position_local_repeat = position_local.repeat(intervals.shape[0],1)
-        candidate_points_local = candidate_points_repeat +position_local_repeat
-        features_all = get_features_plus(feature_map, candidate_points_local)
+        candidate_points_repeat = candidate_points.repeat_interleave(offset_matrix.shape[0],dim=0)
+        offset_matrix_repeat = offset_matrix.repeat(intervals.shape[0],1)
+        candidate_points_local = candidate_points_repeat +offset_matrix_repeat
+        features_all = interpolate_feature_patch_plus(feature_map, candidate_points_local)
         features_all = features_all.reshape((intervals.shape[0],-1))
         dif_location = abs(features_all-template_feature.flatten(0).unsqueeze(0)).mean(1)
         min_idx = torch.argmin(dif_location)   # l=0 in this case
@@ -186,17 +234,18 @@ def get_each_point(current,target_final,L, feature_map,max_distance,template_fea
         return current_best
 
 def get_current_target(sign_points, current_target,target_point,L,feature_map,max_distance,template_feature,
-                       loss_initial,loss_end,threshold_l):
+                       loss_initial,loss_end,offset_matrix,threshold_l):
      # L is the expectation
      for k in range(target_point.shape[0]):
          if sign_points[k] ==0: # sign_points ==0 means the remains distance to target point is larger than the preset threshold
             current_target[k,:] = get_each_point(current_target[k,:],target_point[k,:],\
-                                L,feature_map,max_distance,template_feature[k],loss_initial[k], loss_end[k],threshold_l)
+                                L,feature_map,max_distance,template_feature[k],loss_initial[k], loss_end[k],offset_matrix,threshold_l)
      return current_target
 
-def get_xishu(loss_k,a,b): 
-    xishu = xishu = 1/(1+(a*(loss_k-b)).exp())
-    return xishu
+def get_lam(loss_k,a,b): 
+    # in freedrag, they wrote, as I quote, "xishu = xishu = 1/(1+(a*(loss_k-b)).exp())"
+    lam = 1/(1+(a*(loss_k-b)).exp())
+    return lam
 
 def free_drag_update(model,
                           init_code,
@@ -227,11 +276,19 @@ def free_drag_update(model,
                     ], lr=0.002,  eps=1e-08, weight_decay=0, amsgrad=False)
     Loss_l1 = torch.nn.L1Loss()
 
+    use_mask = False
+    if np.any(mask==1):
+        mask = torch.tensor(mask,dtype=torch.float32,device=args.device).unsqueeze(0).unsqueeze(0)
+        interp_mask = F.interpolate(mask, (init_code.shape[2],init_code.shape[3]), mode='nearest') # in freedrag they used bilinear. I followed dragdiffusion
+        mask_resized = interp_mask.repeat(1,F0.shape[1],1,1) >0
+        use_mask = True
+
     point_pairs_number = target_points.shape[0]
     template_feature = []
-
+    # TODO: r_p is the win_r in freedrag. It should be 3
+    offset_matrix = get_offset_matrix(args.r_p,args.res_ratio)
     for idx in range(point_pairs_number):
-        template_feature.append(interpolate_feature_patch(F0,y=handle_points[idx,0],x=handle_points[idx,1],r=args.r_p))
+        template_feature.append(interpolate_feature_patch_plus(F0,handle_points[idx:]+offset_matrix))
     step_num = 0
     current_targets = handle_points.clone().to(args.device) # TODO: remember to add and check args !!!!
     current_feature_map = F0.detach()
@@ -242,10 +299,71 @@ def free_drag_update(model,
     # TODO: implement motion supervision and fuzzy localizaiton 
     while step_num<args.n_pix_step:
         if torch.all(sign_points==1):
-            yield init_code
+            yield latent_input
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
-                                             current_feature_map,args.dmax,template_feature,loss_ini,loss_end,args.thershold_l) # TODO: args add these
+                                             current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l) # TODO: args add these
+        print('current_targets',current_targets)
+        d_remain = (current_targets-target_points).pow(2).sum(dim=1).pow(0.5)
+        for step in range(5):
+            step_num +=1
+            latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1)
+
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                unet_output, F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
+                    layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+            x_prev_updated,_ = model.step(unet_output, t, latent_input[0])
+
+            loss_supervised = torch.zeros(point_pairs_number).to(args.device)
+            current_feature = [] #F_r^k
+            for idx in range(point_pairs_number):
+                current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
+                loss_supervised[idx] = Loss_l1(current_feature[idx],template_feature[idx].detach())
+            
+            loss_featrue = loss_supervised.sum()
+
+            if use_mask:
+                loss_mask = Loss_l1(F1[~mask_resized],F0[~mask_resized].detach())
+                loss = loss_featrue + 10*loss_mask
+            else:
+                loss = loss_featrue
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            
+            if step_num%args.sample_interval==0: # TODO: Remember to add args
+                yield latent_input
+            
+            if step == 0:
+                loss_ini = loss_supervised
+
+            if loss_supervised.max()<0.5*args.threshold_l: # TODO: Remember to add args
+                break
+            
+            if step_num == args.n_pix_step or step_num>step_threshold+10:
+                yield latent_input
+                break
+        with torch.no_grad():
+            latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1)
+            unet_output,F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
+                    layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+            
+            current_feature = []
+            for idx in range(point_pairs_number):
+                current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
+                loss_end[idx]=Loss_l1(current_feature[idx],template_feature[idx].detach())
+        if d_remain.max() < args.res_ratio:
+            step_threshold = step_num
+        update_signs(sign_points,current_targets,target_points,loss_end,args.res_ratio,0.5*args.threshold_l)
+        for idx in range(point_pairs_number):
+            if sign_points[idx]==1:
+                lam = 1 # lam as in lambda in the equation
+            else:
+                lam = get_lam(loss_end[idx].detach(),args.aa,args.bb)
+            template_feature[idx] = lam*current_feature[idx].detach() + (1-lam)*template_feature[idx]
+        current_feature_map = F1.detach()
+
+
 
 def drag_diffusion_update_gen(model,
                               init_code,
