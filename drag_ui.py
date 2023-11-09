@@ -22,7 +22,7 @@ import gradio as gr
 from utils.ui_utils import get_points, undo_points
 from utils.ui_utils import clear_all, store_img, train_lora_interface, run_drag
 from utils.ui_utils import clear_all_gen, store_img_gen, gen_img, run_drag_gen
-from utils.ui_utils import clear_all_free,store_img_free, train_lora_interface_free,run_freedrag
+from utils.ui_utils import clear_all_free,store_img_free, train_lora_interface_free,run_freedrag,change_stop_state
 
 LENGTH=480 # length of the square area displaying/editing images
 
@@ -58,6 +58,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     run_button_free = gr.Button("Run")
                     clear_all_button_free = gr.Button("Clear All")
+        stop_free = gr.Button('Stop',interactive=False)
 
         # general parameters
         with gr.Row():
@@ -358,8 +359,12 @@ with gr.Blocks() as demo:
         save_dir_free,
         ft_layer_idx_free,
         ],
-        [output_image_free]
+        [output_image_free,
+        stop_free]
     )
+
+    stop_free.click(change_stop_state)
+
     clear_all_button.click(
         clear_all_free,
         [gr.Number(value=LENGTH, visible=False, precision=0)],

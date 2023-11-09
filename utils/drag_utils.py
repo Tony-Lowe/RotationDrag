@@ -275,7 +275,7 @@ def free_drag_update(model,
 
     optimizer = torch.optim.Adam([
                     {'params':latent_trainable}
-                    ], lr=0.002,  eps=1e-08, weight_decay=0, amsgrad=False)
+                    ], lr=args.lam,  eps=1e-08, weight_decay=0, amsgrad=False)
     Loss_l1 = torch.nn.L1Loss()
 
     use_mask = False
@@ -301,7 +301,7 @@ def free_drag_update(model,
     step_threshold = args.n_pix_step 
     while step_num<args.n_pix_step:
         if torch.all(sign_points==1):
-            yield latent_input
+            yield latent_input,current_targets
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
                                              current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l)
@@ -337,7 +337,7 @@ def free_drag_update(model,
             # print("loss_supervised: ",loss_supervised)
             
             if step_num%args.sample_interval==0:
-                yield latent_input
+                yield latent_input, current_targets
             
             if step == 0:
                 loss_ini = loss_supervised
@@ -346,7 +346,7 @@ def free_drag_update(model,
                 break
             
             if step_num == args.n_pix_step or step_num>step_threshold+10:
-                yield latent_input
+                yield latent_input, current_targets
                 break
         with torch.no_grad():
             # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why??? Is this some StyleGan feature?

@@ -41,6 +41,7 @@ from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen, free_d
 from .lora_utils import train_lora
 from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
+from .draw_utils import draw_handle_target_points
 
 
 # -------------- general UI functionality --------------
@@ -366,6 +367,10 @@ def run_drag(source_image,
 
 # -------------------------------------------------------
 
+def change_stop_state():
+    global stop_flag
+    stop_flag = True
+
 def run_freedrag(source_image,
              image_with_clicks,
              mask,
@@ -487,7 +492,10 @@ def run_freedrag(source_image,
 
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
-    for updated_init_code in  free_drag_update(model, init_code, t,
+    # total_image = []
+    global stop_flag 
+    stop_flag = False
+    for updated_init_code, current_points in  free_drag_update(model, init_code, t,
         handle_points, target_points, mask, args):
         # hijack the attention module
         # inject the reference branch to guide the generation
@@ -532,7 +540,19 @@ def run_freedrag(source_image,
 
         out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
         out_image = (out_image * 255).astype(np.uint8)
-        yield out_image
+        # total_image.appnend(out_image)
+        draw_handle_points =[]
+        draw_target_points = []
+        for idx, point in enumerate(current_points):
+            draw_cur_point = torch.tensor([point[0]/args.sup_res_h*full_h, point[1]/args.sup_res_w*full_w]).int()
+            draw_handle_points.append(draw_cur_point)
+        for idx, point in enumerate(target_points):
+            draw_tar_point = torch.tensor([point[0]/args.sup_res_h*full_h, point[1]/args.sup_res_w*full_w]).int()
+            draw_target_points.append(draw_tar_point)
+        out_image = draw_handle_target_points(out_image,draw_handle_points,draw_target_points)
+        yield out_image,gr.Button.update(interactive=True)
+        if stop_flag:
+            break
 
 
 # ----------- dragging generated image utils -----------
