@@ -70,7 +70,7 @@ with gr.Blocks() as demo:
         with gr.Tab("Drag Config"):
             with gr.Row():
                 n_pix_step_free = gr.Number(
-                    value=2000,
+                    value=40,
                     label="number of pixel steps",
                     info="Number of gradient descent (motion supervision) steps on latent.",
                     precision=0)
