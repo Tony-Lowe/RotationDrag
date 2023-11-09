@@ -356,7 +356,7 @@ def run_drag(source_image,
     ], dim=-1)
     # print(save_dir)
     if not os.path.isdir(save_dir):
-        os.mkdir(save_dir)
+        os.makedirs(save_dir)
     save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
     save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
 
@@ -797,7 +797,7 @@ def run_drag_gen(
     ], dim=-1)
 
     if not os.path.isdir(save_dir):
-        os.mkdir(save_dir)
+        os.makedirs(save_dir)
     save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
     save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
 
