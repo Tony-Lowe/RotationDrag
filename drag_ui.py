@@ -63,7 +63,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt_free = gr.Textbox(label="Prompt")
             lora_path_free = gr.Textbox(value="./lora_tmp", label="LoRA path")
-            save_dir_free = gr.Textbox(value="./results", label="Save path")
+            save_dir_free = gr.Textbox(value="./results/free", label="Save path")
             lora_status_bar_free = gr.Textbox(label="display LoRA training status")
 
         # algorithm specific parameters

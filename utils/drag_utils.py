@@ -205,7 +205,7 @@ def get_each_point(current,target_final,L, feature_map,max_distance,template_fea
         candidate_points_repeat = candidate_points.repeat_interleave(offset_matrix.shape[0],dim=0)
         offset_matrix_repeat = offset_matrix.repeat(intervals.shape[0],1)
 
-        candidate_points_local = candidate_points_repeat +offset_matrix_repeat
+        candidate_points_local = candidate_points_repeat + offset_matrix_repeat
         features_all = interpolate_feature_patch_plus(feature_map, candidate_points_local)
 
         features_all = features_all.reshape((intervals.shape[0],-1))
@@ -242,10 +242,10 @@ def get_current_target(sign_points, current_target,target_point,L,feature_map,ma
                                 L,feature_map,max_distance,template_feature[k],loss_initial[k], loss_end[k],offset_matrix,threshold_l)
      return current_target
 
-def get_lam(loss_k,a,b): 
+def get_lad(loss_k,a,b): 
     # in freedrag, they wrote, as I quote, "xishu = xishu = 1/(1+(a*(loss_k-b)).exp())"
-    lam = 1/(1+(a*(loss_k-b)).exp())
-    return lam
+    lad = 1/(1+(a*(loss_k-b)).exp())
+    return lad
 
 def free_drag_update(model,
                           init_code,
@@ -266,10 +266,10 @@ def free_drag_update(model,
         unet_output, F0 = model.forward_unet_features(init_code, t, encoder_hidden_states=text_emb,
             layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
         # F0 has all the feature from midblock to upblock 3
-        x_prev_0,_ = model.step(unet_output, t, init_code) # x_prev_0 is the sample you get when you don't drag
+        # x_prev_0,_ = model.step(unet_output, t, init_code) # x_prev_0 is the sample you get when you don't drag
         # init_code_orig = copy.deepcopy(init_code)
     latent_trainable = init_code.detach().clone().requires_grad_(True)
-    latent_untrainable = init_code.detach().clone().requires_grad_(False)
+    # latent_untrainable = init_code.detach().clone().requires_grad_(False)
 
     optimizer = torch.optim.Adam([
                     {'params':latent_trainable}
@@ -277,20 +277,21 @@ def free_drag_update(model,
     Loss_l1 = torch.nn.L1Loss()
 
     use_mask = False
-    if np.any(mask==1):
-        mask = torch.tensor(mask,dtype=torch.float32,device=args.device).unsqueeze(0).unsqueeze(0)
-        interp_mask = F.interpolate(mask, (init_code.shape[2],init_code.shape[3]), mode='nearest') # in freedrag they used bilinear. I followed dragdiffusion
-        mask_resized = interp_mask.repeat(1,F0.shape[1],1,1) >0
+    if torch.any(mask):
+        mask = torch.tensor(mask,dtype=torch.float32,device=args.device)
+        interp_mask = F.interpolate(mask, (F0.shape[2],F0.shape[3]), mode='bilinear') 
+        mask_resized = interp_mask.repeat(1,F0.shape[1],1,1)>0
         use_mask = True
 
     point_pairs_number = target_points.shape[0]
     template_feature = []
     # TODO: r_p is the win_r in freedrag. It should be 3
-    offset_matrix = get_offset_matrix(args.r_p,args.res_ratio)
+    offset_matrix = get_offset_matrix(args.r_p,args.res_ratio).to(args.device)
     for idx in range(point_pairs_number):
         template_feature.append(interpolate_feature_patch_plus(F0,handle_points[idx:]+offset_matrix))
     step_num = 0
     current_targets = handle_points.clone().to(args.device)
+    # target_points = target_points.to(args.device)
     current_feature_map = F0.detach()
     sign_points= torch.zeros(point_pairs_number).to(args.device) # determiner if the localization point is closest to target point
     loss_ini = torch.zeros(point_pairs_number).to(args.device)
@@ -306,12 +307,13 @@ def free_drag_update(model,
         d_remain = (current_targets-target_points).pow(2).sum(dim=1).pow(0.5)
         for step in range(5):
             step_num +=1
-            latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1)
+            # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why???
+            latent_input = latent_trainable # Freedrag wrote the above line. I can't figure out why.
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                unet_output, F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
-                    layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
-            x_prev_updated,_ = model.step(unet_output, t, latent_input[0])
+            # with torch.autocast(device_type='cuda', dtype=torch.float16):
+            unet_output, F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
+                layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+            # x_prev_updated,_ = model.step(unet_output, t, latent_input[0])
 
             loss_supervised = torch.zeros(point_pairs_number).to(args.device)
             current_feature = [] #F_r^k
@@ -329,6 +331,8 @@ def free_drag_update(model,
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
+
+            print("loss_supervised: ",loss_supervised)
             
             if step_num%args.sample_interval==0:
                 yield latent_input
@@ -343,7 +347,9 @@ def free_drag_update(model,
                 yield latent_input
                 break
         with torch.no_grad():
-            latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1)
+            # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why??? Is this some StyleGan feature?
+            latent_input = latent_trainable
+            # print("latent trainable shape",latent_trainable.shape)
             unet_output,F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
                     layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
             
@@ -351,15 +357,19 @@ def free_drag_update(model,
             for idx in range(point_pairs_number):
                 current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
                 loss_end[idx]=Loss_l1(current_feature[idx],template_feature[idx].detach())
+
         if d_remain.max() < args.res_ratio:
             step_threshold = step_num
         update_signs(sign_points,current_targets,target_points,loss_end,args.res_ratio,0.5*args.threshold_l)
         for idx in range(point_pairs_number):
             if sign_points[idx]==1:
-                lam = 1 # lam as in lambda in the equation
+                lad = 1 # lad as in lambda in the equation
             else:
-                lam = get_lam(loss_end[idx].detach(),args.aa,args.bb)
-            template_feature[idx] = lam*current_feature[idx].detach() + (1-lam)*template_feature[idx]
+                lad = get_lad(loss_end[idx].detach(),args.aa,args.bb)
+            template_feature[idx] = lad*current_feature[idx].detach() + (1-lad)*template_feature[idx]
+
+        print("loss_ini: ",loss_ini)
+
         current_feature_map = F1.detach()
 
 

@@ -429,11 +429,11 @@ def run_freedrag(source_image,
     # freedrag added
     # %---------------------%
     args.device = device
-
+    args.res_ratio = 0.5
     args.l_expected = l_expected
     args.dmax = d_max
     args.sample_interval=sample_interval
-    args.threshhold_l = 0.5 * l_expected
+    args.threshold_l = 0.5 * l_expected
     args.aa = torch.log(torch.tensor(9.0,device=device))/(0.6*l_expected)
     args.bb = 0.2*l_expected
     # %---------------------%
@@ -469,12 +469,14 @@ def run_freedrag(source_image,
     target_points = []
     # here, the point is in x,y coordinate
     for idx, point in enumerate(points):
-        cur_point = torch.tensor([point[1]/full_h*args.sup_res_h, point[0]/full_w*args.sup_res_w])
+        cur_point = torch.tensor([point[1]/full_h*args.sup_res_h, point[0]/full_w*args.sup_res_w],device=device).float()
         cur_point = torch.round(cur_point)
         if idx % 2 == 0:
             handle_points.append(cur_point)
         else:
             target_points.append(cur_point)
+    handle_points = torch.stack(handle_points)
+    target_points = torch.stack(target_points)
     print('handle points:', handle_points) # y,x (h,w)
     print('target points:', target_points) # y,x (h,w)
 
@@ -485,10 +487,13 @@ def run_freedrag(source_image,
 
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
+    i = 0
     for updated_init_code in  free_drag_update(model, init_code, t,
         handle_points, target_points, mask, args):
         # hijack the attention module
         # inject the reference branch to guide the generation
+
+        # TODO: find a way to unregister the Masctrl
         editor = MutualSelfAttentionControl(start_step=start_step,
                                         start_layer=start_layer,
                                         total_steps=args.n_inference_step,
@@ -502,7 +507,7 @@ def run_freedrag(source_image,
         gen_image = model(
             prompt=args.prompt,
             batch_size=2,
-            latents=torch.cat([init_code_orig, updated_init_code], dim=0),
+            latents=torch.cat([init_code_orig, updated_init_code], dim=0),                                                                    
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.n_inference_step,
             num_actual_inference_steps=args.n_actual_inference_step
