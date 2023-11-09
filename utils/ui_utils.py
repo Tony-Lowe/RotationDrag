@@ -487,21 +487,20 @@ def run_freedrag(source_image,
 
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
-    i = 0
     for updated_init_code in  free_drag_update(model, init_code, t,
         handle_points, target_points, mask, args):
         # hijack the attention module
         # inject the reference branch to guide the generation
 
-        # TODO: find a way to unregister the Masctrl
-        editor = MutualSelfAttentionControl(start_step=start_step,
-                                        start_layer=start_layer,
-                                        total_steps=args.n_inference_step,
-                                        guidance_scale=args.guidance_scale)
-        if lora_path == "":
-            register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
-        else:
-            register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
+        # # TODO: find a way to unregister the Masctrl or just remove it 
+        # editor = MutualSelfAttentionControl(start_step=start_step,
+        #                                 start_layer=start_layer,
+        #                                 total_steps=args.n_inference_step,
+        #                                 guidance_scale=args.guidance_scale)
+        # if lora_path == "":
+        #     register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
+        # else:
+        #     register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
 
         # inference the synthesized image
         gen_image = model(
@@ -526,8 +525,8 @@ def run_freedrag(source_image,
             gen_image[0:1]
         ], dim=-1)
         # print(save_dir)
-        if not os.path.isdir(save_dir):
-            os.mkdir(save_dir)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
         save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
         save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
 

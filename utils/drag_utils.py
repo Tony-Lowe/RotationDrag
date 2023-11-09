@@ -259,6 +259,8 @@ def free_drag_update(model,
     """
     assert len(handle_points) == len(target_points), \
         "number of handle point must equals target points"
+    
+    model.modify_unet_forward()
 
     text_emb = model.get_text_embeddings(args.prompt).detach()
     # the init output feature of unet
@@ -332,7 +334,7 @@ def free_drag_update(model,
             optimizer.step()
             optimizer.zero_grad()
 
-            print("loss_supervised: ",loss_supervised)
+            # print("loss_supervised: ",loss_supervised)
             
             if step_num%args.sample_interval==0:
                 yield latent_input
@@ -368,7 +370,7 @@ def free_drag_update(model,
                 lad = get_lad(loss_end[idx].detach(),args.aa,args.bb)
             template_feature[idx] = lad*current_feature[idx].detach() + (1-lad)*template_feature[idx]
 
-        print("loss_ini: ",loss_ini)
+        # print("loss_ini: ",loss_ini)
 
         current_feature_map = F1.detach()
 
