@@ -275,7 +275,7 @@ def free_drag_update(model,
 
     optimizer = torch.optim.Adam([
                     {'params':latent_trainable}
-                    ], lr=args.lam,  eps=1e-08, weight_decay=0, amsgrad=False)
+                    ], lr=args.lr,  eps=1e-08, weight_decay=0, amsgrad=False)
     Loss_l1 = torch.nn.L1Loss()
 
     use_mask = False
