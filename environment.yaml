@@ -46,3 +46,4 @@ dependencies:
       - tensorboardX==2.6
       - tqdm==4.64.1
       - numpy==1.24.1
+      - loguru==0.5.3

@@ -20,6 +20,8 @@ import copy
 import torch
 import torch.nn.functional as F
 import numpy as np
+from loguru import logger
+from utils.logger import get_logger
 
 
 def point_tracking(F0,
@@ -275,7 +277,8 @@ def free_drag_update(model,
 
     optimizer = torch.optim.Adam([
                     {'params':latent_trainable}
-                    ], lr=args.lr,  eps=1e-08, weight_decay=0, amsgrad=False)
+                    ], lr=args.lr)
+                    # ,  eps=1e-08, weight_decay=0, amsgrad=False)
     Loss_l1 = torch.nn.L1Loss()
 
     use_mask = False
@@ -305,7 +308,7 @@ def free_drag_update(model,
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
                                              current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l)
-        print('current_targets',current_targets)
+        logger.info(f'current_targets {current_targets}')
         d_remain = (current_targets-target_points).pow(2).sum(dim=1).pow(0.5)
         for step in range(5):
             step_num +=1
@@ -330,17 +333,19 @@ def free_drag_update(model,
                 loss = loss_featrue + 10*loss_mask
             else:
                 loss = loss_featrue
+            logger.info(f"Loss: {loss}")
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
 
-            # print("loss_supervised: ",loss_supervised)
             
             if step_num%args.sample_interval==0:
                 yield latent_input, current_targets
             
             if step == 0:
                 loss_ini = loss_supervised
+
+            logger.info(f"Loss_ini: {loss_ini}")
 
             if loss_supervised.max()<0.5*args.threshold_l:
                 break
@@ -359,6 +364,8 @@ def free_drag_update(model,
             for idx in range(point_pairs_number):
                 current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
                 loss_end[idx]=Loss_l1(current_feature[idx],template_feature[idx].detach())
+            
+            logger.info(f"Loss_end: {loss_end}")
 
         if d_remain.max() < args.res_ratio:
             step_threshold = step_num

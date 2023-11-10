@@ -36,7 +36,9 @@ from drag_pipeline import DragPipeline
 
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
+from loguru import logger
 
+from .logger import get_logger
 from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen, free_drag_update
 from .lora_utils import train_lora
 from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
@@ -443,18 +445,22 @@ def run_freedrag(source_image,
     args.bb = 0.2*l_expected
     # %---------------------%
 
+    save_dir = os.path.join(save_dir,prompt.replace(' ','_')+'_'+str(l_expected)+'_'+str(latent_lr))
 
-    print(args)
+    logger=get_logger(save_dir+'/result.log')
+
+    logger.info(args)
+
 
     source_image = preprocess_image(source_image, device)
     image_with_clicks = preprocess_image(image_with_clicks, device)
 
     # set lora
     if lora_path == "":
-        print("applying default parameters")
+        logger.info("applying default parameters")
         model.unet.set_default_attn_processor()
     else:
-        print("applying lora: " + lora_path)
+        logger.info("applying lora: " + lora_path)
         model.unet.load_attn_procs(lora_path)
 
     # invert the source image
@@ -482,8 +488,8 @@ def run_freedrag(source_image,
             target_points.append(cur_point)
     handle_points = torch.stack(handle_points)
     target_points = torch.stack(target_points)
-    print('handle points:', handle_points) # y,x (h,w)
-    print('target points:', target_points) # y,x (h,w)
+    logger.info(f"handle points: {handle_points}") # y,x (h,w)
+    logger.info(f"target points: {target_points}") # y,x (h,w)
 
     init_code = invert_code
     init_code_orig = deepcopy(init_code)
@@ -500,15 +506,15 @@ def run_freedrag(source_image,
         # hijack the attention module
         # inject the reference branch to guide the generation
 
-        # # TODO: find a way to unregister the Masctrl or just remove it 
-        # editor = MutualSelfAttentionControl(start_step=start_step,
-        #                                 start_layer=start_layer,
-        #                                 total_steps=args.n_inference_step,
-        #                                 guidance_scale=args.guidance_scale)
-        # if lora_path == "":
-        #     register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
-        # else:
-        #     register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
+        # TODO: find a way to unregister the Masctrl or just remove it 
+        editor = MutualSelfAttentionControl(start_step=start_step,
+                                        start_layer=start_layer,
+                                        total_steps=args.n_inference_step,
+                                        guidance_scale=args.guidance_scale)
+        if lora_path == "":
+            register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
+        else:
+            register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
 
         # inference the synthesized image
         gen_image = model(
