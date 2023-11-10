@@ -304,7 +304,7 @@ def free_drag_update(model,
     step_threshold = args.n_pix_step 
     while step_num<args.n_pix_step:
         if torch.all(sign_points==1):
-            logger.info("Terminated by max_step")
+            logger.info("Target Points reached successfully!")
             yield latent_input,current_targets
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
