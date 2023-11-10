@@ -311,7 +311,9 @@ def free_drag_update(model,
         logger.info(f'current_targets {current_targets}')
         d_remain = (current_targets-target_points).pow(2).sum(dim=1).pow(0.5)
         for step in range(5):
+            logger.info(f"step: {step_num}")
             step_num +=1
+            
             # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why???
             latent_input = latent_trainable # Freedrag wrote the above line. I can't figure out why.
 
@@ -351,7 +353,7 @@ def free_drag_update(model,
                 break
             
             if step_num == args.n_pix_step or step_num>step_threshold+10:
-                yield latent_input, current_targets
+                # yield latent_input, current_targets
                 break
         with torch.no_grad():
             # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why??? Is this some StyleGan feature?
