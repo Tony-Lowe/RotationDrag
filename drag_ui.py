@@ -58,7 +58,7 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     run_button_free = gr.Button("Run")
                     clear_all_button_free = gr.Button("Clear All")
-        stop_free = gr.Button('Stop',interactive=False)
+        stop_free = gr.Button('Stop',interactive=False,visible=False)
 
         # general parameters
         with gr.Row():
@@ -81,13 +81,13 @@ with gr.Blocks() as demo:
                     value=0.75,
                     label="inversion strength",
                     info="The latent at [inversion-strength * total-sampling-steps] is optimized for dragging.")
-                latent_lr_free = gr.Number(value=0.1, label="latent lr")
+                latent_lr_free = gr.Number(value=0.002, label="latent lr")
                 start_step_free = gr.Number(value=0, label="start_step", precision=0, visible=False)
                 start_layer_free = gr.Number(value=10, label="start_layer", precision=0, visible=False)
 
         with gr.Tab("Free Config"):
             with gr.Row():
-                l_expected = gr.Number(value=0.2,label="l_expected", info="Expected initial loss for each sub-motion")
+                l_expected = gr.Number(value=1.0,label="l_expected", info="Expected initial loss for each sub-motion")
                 d_max = gr.Number(value=3,label='d_max',info="Max distance for each sub-motion (in the feature map) default=3")
                 sample_interval = gr.Number(label='Interval',value=200001,info="Sampling interval",visible=False)
 
@@ -146,7 +146,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
-            save_dir = gr.Textbox(value="./results", label="Save path")
+            save_dir = gr.Textbox(value="./results/dragdiffusion", label="Save path")
             lora_status_bar = gr.Textbox(label="display LoRA training status")
 
         # algorithm specific parameters

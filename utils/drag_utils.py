@@ -259,7 +259,7 @@ def free_drag_update(model,
     """ 
     :param init_code: latent
     """
-    assert len(handle_points) == len(target_points), \
+    assert handle_points.shape[0] == target_points.shape[0], \
         "number of handle point must equals target points"
     
     model.modify_unet_forward()
@@ -293,7 +293,7 @@ def free_drag_update(model,
     # TODO: r_p is the win_r in freedrag. It should be 3
     offset_matrix = get_offset_matrix(args.r_p,args.res_ratio).to(args.device)
     for idx in range(point_pairs_number):
-        template_feature.append(interpolate_feature_patch_plus(F0,handle_points[idx:]+offset_matrix))
+        template_feature.append(interpolate_feature_patch_plus(F0,handle_points[idx,:]+offset_matrix))
     step_num = 0
     current_targets = handle_points.clone().to(args.device)
     # target_points = target_points.to(args.device)
