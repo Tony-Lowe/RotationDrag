@@ -75,7 +75,7 @@ with gr.Blocks() as demo:
                     label="number of pixel steps",
                     info="Number of gradient descent (motion supervision) steps on latent.",
                     precision=0)
-                lam_free = gr.Number(value=0.1, label="lam", info="regularization strength on unmasked areas")
+                lam_free = gr.Number(value=0.1, label="lam", info="regularization strength on unmasked areas",visible=False)
                 # n_actual_inference_step = gr.Number(value=40, label="optimize latent step", precision=0)
                 inversion_strength_free = gr.Slider(0, 1.0,
                     value=0.75,
