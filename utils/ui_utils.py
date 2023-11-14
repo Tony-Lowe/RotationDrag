@@ -558,7 +558,8 @@ def run_freedrag(source_image,
         out_image = draw_handle_target_points(out_image,draw_handle_points,draw_target_points)
         logger.info(f"Final handle Points: {draw_handle_points}")
         logger.info(f"Target Points: {draw_target_points}")
-        out_image.save(os.path.join(save_dir, save_prefix + '_points.png'))
+        save_pts = PIL.Image.fromarray(out_image)
+        save_pts.save(os.path.join(save_dir, save_prefix + '_points.png'))
         yield out_image,gr.Button.update(interactive=True)
         if stop_flag:
             break
