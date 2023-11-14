@@ -87,7 +87,7 @@ with gr.Blocks() as demo:
 
         with gr.Tab("Free Config"):
             with gr.Row():
-                l_expected = gr.Number(value=1.0,label="l_expected", info="Expected initial loss for each sub-motion")
+                l_expected = gr.Number(value=0.8,label="l_expected", info="Expected initial loss for each sub-motion")
                 d_max = gr.Number(value=3,label='d_max',info="Max distance for each sub-motion (in the feature map) default=3")
                 sample_interval = gr.Number(label='Interval',value=200001,info="Sampling interval",visible=False)
 
