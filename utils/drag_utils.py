@@ -317,25 +317,25 @@ def free_drag_update(model,
             
             # latent_input = torch.cat((latent_trainable,latent_untrainable),dim=1) # Why???
             latent_input = latent_trainable # Freedrag wrote the above line. I can't figure out why.
+            # autocast boosts speed signifincantly
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                unet_output, F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
+                    layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
+                # x_prev_updated,_ = model.step(unet_output, t, latent_input[0])
 
-            # with torch.autocast(device_type='cuda', dtype=torch.float16):
-            unet_output, F1 = model.forward_unet_features(latent_input, t, encoder_hidden_states=text_emb,
-                layer_idx=args.unet_feature_idx, interp_res_h=args.sup_res_h, interp_res_w=args.sup_res_w)
-            # x_prev_updated,_ = model.step(unet_output, t, latent_input[0])
+                loss_supervised = torch.zeros(point_pairs_number).to(args.device)
+                current_feature = [] #F_r^k
+                for idx in range(point_pairs_number):
+                    current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
+                    loss_supervised[idx] = Loss_l1(current_feature[idx],template_feature[idx].detach())
 
-            loss_supervised = torch.zeros(point_pairs_number).to(args.device)
-            current_feature = [] #F_r^k
-            for idx in range(point_pairs_number):
-                current_feature.append(interpolate_feature_patch_plus(F1,current_targets[idx,:]+offset_matrix))
-                loss_supervised[idx] = Loss_l1(current_feature[idx],template_feature[idx].detach())
-            
-            loss_featrue = loss_supervised.sum()
+                loss_featrue = loss_supervised.sum()
 
-            if use_mask:
-                loss_mask = Loss_l1(F1[~mask_resized],F0[~mask_resized].detach())
-                loss = loss_featrue + 10*loss_mask
-            else:
-                loss = loss_featrue
+                if use_mask:
+                    loss_mask = Loss_l1(F1[~mask_resized],F0[~mask_resized].detach())
+                    loss = loss_featrue + 10*loss_mask
+                else:
+                    loss = loss_featrue
             logger.info(f"Loss: {loss}")
             loss.backward()
             optimizer.step()
