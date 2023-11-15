@@ -4,10 +4,12 @@ channels:
   - defaults
   - nvidia
   - conda-forge
+  - xformers
 dependencies:
   - python=3.10
   - pip=22.3.1
   - cudatoolkit=11.7
+  - xformers
   - pip:
       - torch==2.0.0
       - torchvision==0.15.1
@@ -47,3 +49,5 @@ dependencies:
       - tqdm==4.64.1
       - numpy==1.24.1
       - loguru==0.5.3
+      - matplotlib
+      - scikit-learn

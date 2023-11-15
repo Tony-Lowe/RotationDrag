@@ -4,6 +4,10 @@ from copy import deepcopy
 import math
 import numpy as np
 from typing import List, Tuple
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from sklearn.decomposition import PCA
 
 def get_ellipse_coords(
     point, radius: int = 5
@@ -91,3 +95,39 @@ def draw_handle_target_points(
             # Draw the arrowhead
             draw.polygon([tuple(target_point), arrow_point1, arrow_point2], fill='white')
     return np.array(img)
+
+def compute_featruemap(desc):
+    N,C,H,W = desc.shape
+    desc_reshaped = desc.cpu().view(C,-1).permute(1,0)
+    n_components = 3
+    pca = PCA(n_components=n_components)
+    reduced_desc = pca.fit_transform(desc_reshaped)
+    # Stack the reduced channel data back into the original shape
+    heatmap = reduced_desc.reshape(H,W,n_components)
+    # Visualize the reduced feature map (example for a single channel)
+    # heatmap = heatmap.reshape(H, W)
+    heatmap = (heatmap-np.min(heatmap))/(np.max(heatmap)-np.min(heatmap))
+    return heatmap
+
+
+def draw_featuremap(desc: torch.Tensor) -> plt.Figure:
+    """
+    draw point correspondences on images.
+    :param desc: image's descriptor.
+    :param image1: a PIL image.
+    :return: a figure of images with all marked keypoints.
+    """
+
+    heatmap = compute_featruemap(desc)
+
+    plt.autoscale(tight=True)
+    
+    fig, ax = plt.subplots()
+    plt.axis('off')
+    ax.axis('off')
+    ax.imshow(heatmap, cmap='viridis')
+    ax.set_xlim(0, desc.shape[3])
+    ax.set_ylim(desc.shape[2], 0)
+
+    fig.subplots_adjust(left=None,bottom=None,right=None,wspace=0,hspace=None)
+    return fig

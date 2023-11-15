@@ -30,6 +30,7 @@ from PIL import Image
 from PIL.ImageOps import exif_transpose
 import torch
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 from diffusers import DDIMScheduler, AutoencoderKL, DPMSolverMultistepScheduler
 from drag_pipeline import DragPipeline
@@ -43,7 +44,7 @@ from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen, free_d
 from .lora_utils import train_lora
 from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl,register_attention_editor_diffusers_ori,unregister_attention_editor_diffusers
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
-from .draw_utils import draw_handle_target_points
+from .draw_utils import draw_handle_target_points,draw_featuremap
 
 
 # -------------- general UI functionality --------------
@@ -280,7 +281,12 @@ def run_drag(source_image,
     args.sample_interval=sample_interval
 
     # print(args)
+    save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
     save_dir = os.path.join(save_dir,prompt.replace(' ','_'))
+    save_dir = os.path.join(save_dir,save_prefix)
+
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
 
     logger=get_logger(save_dir+'/result.log')
     logger.info(args)
@@ -329,7 +335,7 @@ def run_drag(source_image,
 
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
-    for updated_init_code,current_points in drag_diffusion_update(model, init_code, t, handle_points, target_points, mask, args):
+    for updated_init_code,current_points,ft in drag_diffusion_update(model, init_code, t, handle_points, target_points, mask, args):
         # hijack the attention module
         # inject the reference branch to guide the generation
         editor = MutualSelfAttentionControl(start_step=start_step,
@@ -369,10 +375,11 @@ def run_drag(source_image,
             gen_image[0:1]
         ], dim=-1)
         # print(save_dir)
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
+        save_dir_3_col = save_dir + "/3_col"
+        if not os.path.isdir(save_dir_3_col):
+            os.makedirs(save_dir_3_col)
         save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-        save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
+        save_image(save_result, os.path.join(save_dir_3_col, save_prefix + '.png'))
 
         out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
         out_image = (out_image * 255).astype(np.uint8)
@@ -391,7 +398,23 @@ def run_drag(source_image,
         logger.info(f"handle Points: {draw_handle_points}")
         logger.info(f"Target Points: {draw_target_points}")
         save_pts = PIL.Image.fromarray(out_image)
-        save_pts.save(os.path.join(save_dir, save_prefix + '_points.png'))
+        save_dir_points = save_dir+"/points"
+        if not os.path.isdir(save_dir_points):
+            os.makedirs(save_dir_points)
+        save_pts.save(os.path.join(save_dir_points, save_prefix + '_points.png'))
+        fig_ft = draw_featuremap(ft)
+        save_dir_ft = save_dir+"/ft"
+        if not os.path.isdir(save_dir_ft):
+            os.makedirs(save_dir_ft)
+        fig_ft.savefig(os.path.join(save_dir_ft, save_prefix + '_ft.png'), bbox_inches="tight")
+        plt.close(fig_ft)
+        drawable_init_code = updated_init_code.clone().cpu().detach()
+        fig_latent = draw_featuremap(drawable_init_code)
+        save_dir_lat = save_dir+"/latent"
+        if not os.path.isdir(save_dir_lat):
+            os.makedirs(save_dir_lat)
+        fig_latent.savefig(os.path.join(save_dir_lat,save_prefix+"_lat.png"), bbox_inches="tight")
+        plt.close(fig_latent)
         yield out_image
 
 # -------------------------------------------------------
@@ -475,7 +498,10 @@ def run_freedrag(source_image,
     # %---------------------%
 
     save_dir = os.path.join(save_dir,prompt.replace(' ','_')+'_'+str(l_expected)+'_'+str(latent_lr))
-
+    save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+    save_dir = os.path.join(save_dir,save_prefix)
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
     logger=get_logger(save_dir+'/result.log')
     logger.info("Using model "+model_path)
     logger.info(args)
@@ -530,7 +556,7 @@ def run_freedrag(source_image,
     # total_image = []
     global stop_flag 
     stop_flag = False
-    for updated_init_code, current_points in  free_drag_update(model, init_code, t,
+    for updated_init_code, current_points,ft in  free_drag_update(model, init_code, t,
         handle_points, target_points, mask, args):
         # hijack the attention module
         # inject the reference branch to guide the generation
@@ -575,10 +601,11 @@ def run_freedrag(source_image,
             gen_image[0:1]
         ], dim=-1)
         # print(save_dir)
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
+        save_dir_3_col = save_dir + "/3_col"
+        if not os.path.isdir(save_dir_3_col):
+            os.makedirs(save_dir_3_col)
         save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-        save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
+        save_image(save_result, os.path.join(save_dir_3_col, save_prefix + '.png'))
 
         out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
         out_image = (out_image * 255).astype(np.uint8)
@@ -595,7 +622,23 @@ def run_freedrag(source_image,
         logger.info(f"Final handle Points: {draw_handle_points}")
         logger.info(f"Target Points: {draw_target_points}")
         save_pts = PIL.Image.fromarray(out_image)
-        save_pts.save(os.path.join(save_dir, save_prefix + '_points.png'))
+        save_dir_points = save_dir+"/points"
+        if not os.path.isdir(save_dir_points):
+            os.makedirs(save_dir_points)
+        save_pts.save(os.path.join(save_dir_points, save_prefix + '_points.png'))
+        fig_ft = draw_featuremap(ft)
+        save_dir_ft = save_dir+"/ft"
+        if not os.path.isdir(save_dir_ft):
+            os.makedirs(save_dir_ft)
+        fig_ft.savefig(os.path.join(save_dir_ft, save_prefix + '_ft.png'), bbox_inches="tight")
+        plt.close(fig_ft)
+        drawable_init_code = updated_init_code.clone().cpu().detach()
+        fig_latent = draw_featuremap(drawable_init_code)
+        save_dir_lat = save_dir+"/latent"
+        if not os.path.isdir(save_dir_lat):
+            os.makedirs(save_dir_lat)
+        fig_latent.savefig(os.path.join(save_dir_lat,save_prefix+"_lat.png"), bbox_inches="tight")
+        plt.close(fig_latent)
         yield out_image,gr.Button.update(interactive=True)
         if stop_flag:
             break

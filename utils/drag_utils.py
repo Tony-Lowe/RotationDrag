@@ -171,9 +171,10 @@ def drag_diffusion_update(model,
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
+        ret_ft = F1.clone().cpu().detach()
         if step_idx%args.sample_interval==0:
-            yield init_code,handle_points
-    yield init_code,handle_points
+            yield init_code,handle_points,ret_ft
+    yield init_code,handle_points,ret_ft
 
 
 def update_signs(sign_point_pairs, current_point, target_point,loss_supervised,threshold_d,threshold_l):
@@ -305,7 +306,7 @@ def free_drag_update(model,
     while step_num<args.n_pix_step:
         if torch.all(sign_points==1):
             logger.info("Target Points reached successfully!")
-            yield latent_input,current_targets
+            yield latent_input,current_targets, F1.clone().cpu().detach()
             break
         current_targets = get_current_target(sign_points,current_targets,target_points,args.l_expected,
                                              current_feature_map,args.dmax,template_feature,loss_ini,loss_end,offset_matrix,args.threshold_l)
@@ -343,7 +344,7 @@ def free_drag_update(model,
 
             
             if step_num%args.sample_interval==0:
-                yield latent_input, current_targets
+                yield latent_input, current_targets, F1.clone().cpu().detach()
             
             if step == 0:
                 loss_ini = loss_supervised
@@ -355,7 +356,7 @@ def free_drag_update(model,
             
             if step_num == args.n_pix_step or step_num>step_threshold+10:
                 logger.info("Terminated by step_threshold")
-                yield latent_input, current_targets
+                yield latent_input, current_targets, F1.clone().cpu().detach()
                 break
         if step_num == args.n_pix_step or step_num>step_threshold+10:
             break
