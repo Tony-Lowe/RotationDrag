@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from loguru import logger
 
 from einops import rearrange, repeat
 
@@ -219,3 +220,85 @@ def register_attention_editor_diffusers(model, editor: AttentionBase, attn_proce
         elif "up" in net_name:
             cross_att_count += register_editor(net, 0, "up")
     editor.num_att_layers = cross_att_count
+
+def register_attention_editor_diffusers_ori(model, editor: AttentionBase, attn_processor='attn_proc'):
+    """
+    Register a attention editor to Diffuser Pipeline, refer from [Prompt-to-Prompt]
+    """
+    def register_editor_ori(net, count, place_in_unet):
+        forward_ori = []
+        for name, subnet in net.named_children():
+            if net.__class__.__name__ == 'Attention':  # spatial Transformer layer
+                if attn_processor == 'attn_proc':
+                    ori = net.forward
+                    forward_ori.append(ori)
+                    net.forward = override_attn_proc_forward(net, editor, place_in_unet)
+                elif attn_processor == 'lora_attn_proc':
+                    ori = net.forward
+                    forward_ori.append(ori)
+                    net.forward = override_lora_attn_proc_forward(net, editor, place_in_unet)
+                else:
+                    raise NotImplementedError("not implemented")
+                # logger.info(name)
+                return count + 1, forward_ori
+            elif hasattr(net, 'children'):
+                count, child_forward_ori = register_editor_ori(subnet, count, place_in_unet)
+                forward_ori.append(child_forward_ori)
+        return count, forward_ori
+
+    cross_att_count = 0
+    ori_forward = {}
+    # ori_forward["down"]=[]
+    # ori_forward["mid"]=[]
+    # ori_forward["up"]=[]
+    for net_name, net in model.unet.named_children():
+        if "down" in net_name:
+            cnt,down_forward_ori = register_editor_ori(net, 0, "down")
+            ori_forward["down"] = down_forward_ori
+            cross_att_count += cnt
+        elif "mid" in net_name:
+            cnt,mid_forward_ori = register_editor_ori(net, 0, "mid")
+            ori_forward["mid"]=mid_forward_ori
+            cross_att_count+=cnt
+        elif "up" in net_name:
+            cnt,up_forward_ori = register_editor_ori(net, 0, "mid")
+            ori_forward["up"]=up_forward_ori
+            cross_att_count+=cnt
+        # logger.info(net_name)
+        # logger.info(cross_att_count)
+    editor.num_att_layers = cross_att_count
+    return ori_forward
+
+
+def unregister_attention_editor_diffusers(model, ori_forward, attn_processor='attn_proc'):
+    """
+    Register a attention editor to Diffuser Pipeline, refer from [Prompt-to-Prompt]
+    """
+    def unregister_editor(net, count, place_in_unet,ori_forward_list):
+        idx=0
+        for name, subnet in net.named_children():
+            if net.__class__.__name__ == 'Attention':  # spatial Transformer layer
+                if attn_processor == 'attn_proc':
+                    net.forward = ori_forward_list[idx]
+                elif attn_processor == 'lora_attn_proc':
+                    net.forward = ori_forward_list[idx]
+                else:
+                    raise NotImplementedError("not implemented")
+                return count + 1
+            elif hasattr(net, 'children'):
+                count = unregister_editor(subnet, count, place_in_unet,ori_forward_list[idx])
+            idx+=1
+        return count
+
+    cross_att_count = 0
+    for net_name, net in model.unet.named_children():
+        if "down" in net_name:
+            cnt = unregister_editor(net, 0, "down",ori_forward["down"])
+            cross_att_count += cnt
+        elif "mid" in net_name:
+            cnt = unregister_editor(net, 0, "mid",ori_forward["mid"])
+            cross_att_count+=cnt
+        elif "up" in net_name:
+            cnt = unregister_editor(net, 0, "mid",ori_forward["up"])
+            cross_att_count+=cnt
+    # logger.info(cross_att_count)

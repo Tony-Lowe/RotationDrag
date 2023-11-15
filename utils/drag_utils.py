@@ -171,8 +171,9 @@ def drag_diffusion_update(model,
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad()
-
-    return init_code
+        if step_idx%args.sample_interval==0:
+            yield init_code,handle_points
+    yield init_code,handle_points
 
 
 def update_signs(sign_point_pairs, current_point, target_point,loss_supervised,threshold_d,threshold_l):
@@ -262,7 +263,6 @@ def free_drag_update(model,
     assert handle_points.shape[0] == target_points.shape[0], \
         "number of handle point must equals target points"
     
-    model.modify_unet_forward()
 
     text_emb = model.get_text_embeddings(args.prompt).detach()
     # the init output feature of unet
@@ -342,8 +342,8 @@ def free_drag_update(model,
             optimizer.zero_grad()
 
             
-            # if step_num%args.sample_interval==0:
-            #     yield latent_input, current_targets
+            if step_num%args.sample_interval==0:
+                yield latent_input, current_targets
             
             if step == 0:
                 loss_ini = loss_supervised

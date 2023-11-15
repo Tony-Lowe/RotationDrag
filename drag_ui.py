@@ -89,7 +89,7 @@ with gr.Blocks() as demo:
             with gr.Row():
                 l_expected = gr.Number(value=0.8,label="l_expected", info="Expected initial loss for each sub-motion")
                 d_max = gr.Number(value=3,label='d_max',info="Max distance for each sub-motion (in the feature map) default=3")
-                sample_interval = gr.Number(label='Interval',value=200001,info="Sampling interval",visible=False)
+                sample_interval_free = gr.Number(label='Interval',value=20,info="Sampling interval",visible=True)
 
 
         with gr.Tab("Base Model Config"):
@@ -113,7 +113,7 @@ with gr.Blocks() as demo:
 
         with gr.Tab("LoRA Parameters"):
             with gr.Row():
-                lora_step_free = gr.Number(value=60, label="LoRA training steps",info="Suggest 140 for sdv2-1", precision=0)
+                lora_step_free = gr.Number(value=60, label="LoRA training steps",info="Suggest 200 for sdv2-1", precision=0)
                 lora_lr_free = gr.Number(value=0.0005, label="LoRA learning rate",info="Suggest 0.01 for sdv2-1")
                 lora_batch_size_free = gr.Number(value=4, label="LoRA batch size", precision=0)
                 lora_rank_free = gr.Number(value=16, label="LoRA rank", precision=0)
@@ -148,6 +148,7 @@ with gr.Blocks() as demo:
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp", label="LoRA path")
             save_dir = gr.Textbox(value="./results/dragdiffusion", label="Save path")
+            sample_interval = gr.Number(label='Sampling Interval',value=5,visible=True)
             lora_status_bar = gr.Textbox(label="display LoRA training status")
 
         # algorithm specific parameters
@@ -358,7 +359,7 @@ with gr.Blocks() as demo:
         start_layer_free,
         l_expected,
         d_max,
-        sample_interval,
+        sample_interval_free,
         save_dir_free,
         lora_resolution_free,
         ft_layer_idx_free,
@@ -426,6 +427,7 @@ with gr.Blocks() as demo:
         start_layer,
         save_dir,
         ft_layer_idx,
+        sample_interval,
         ],
         [output_image]
     )
