@@ -41,7 +41,7 @@ from loguru import logger
 from .logger import get_logger
 from .drag_utils import drag_diffusion_update, drag_diffusion_update_gen, free_drag_update
 from .lora_utils import train_lora
-from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl
+from .attn_utils import register_attention_editor_diffusers, MutualSelfAttentionControl,register_attention_editor_diffusers_ori,unregister_attention_editor_diffusers
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
 from .draw_utils import draw_handle_target_points
 
@@ -197,6 +197,7 @@ def train_lora_interface_free(original_image,
                          lora_lr,
                          lora_batch_size,
                          lora_rank,
+                         lora_resolution=512,
                          progress=gr.Progress()):
     train_lora(
         original_image,
@@ -208,7 +209,8 @@ def train_lora_interface_free(original_image,
         lora_lr,
         lora_batch_size,
         lora_rank,
-        progress)
+        progress,
+        lora_resolution)
     return "Training LoRA Done!"
 
 def preprocess_image(image,
@@ -234,6 +236,7 @@ def run_drag(source_image,
              start_layer,
              save_dir="./results",
              unet_feature_idx=[3],
+             sample_interval=5,
     ):
     # initialize model
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -274,8 +277,13 @@ def run_drag(source_image,
     full_h, full_w = source_image.shape[:2]
     args.sup_res_h = int(0.5*full_h)
     args.sup_res_w = int(0.5*full_w)
+    args.sample_interval=sample_interval
 
-    print(args)
+    # print(args)
+    save_dir = os.path.join(save_dir,prompt.replace(' ','_'))
+
+    logger=get_logger(save_dir+'/result.log')
+    logger.info(args)
 
     source_image = preprocess_image(source_image, device)
     image_with_clicks = preprocess_image(image_with_clicks, device)
@@ -321,51 +329,70 @@ def run_drag(source_image,
 
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
-    updated_init_code = drag_diffusion_update(model, init_code, t,
-        handle_points, target_points, mask, args)
+    for updated_init_code,current_points in drag_diffusion_update(model, init_code, t, handle_points, target_points, mask, args):
+        # hijack the attention module
+        # inject the reference branch to guide the generation
+        editor = MutualSelfAttentionControl(start_step=start_step,
+                                            start_layer=start_layer,
+                                            total_steps=args.n_inference_step,
+                                            guidance_scale=args.guidance_scale)
+        if lora_path == "":
+            ori_forward = register_attention_editor_diffusers_ori(model, editor, attn_processor='attn_proc')
+        else:
+            ori_forward = register_attention_editor_diffusers_ori(model, editor, attn_processor='lora_attn_proc')
 
-    # hijack the attention module
-    # inject the reference branch to guide the generation
-    editor = MutualSelfAttentionControl(start_step=start_step,
-                                        start_layer=start_layer,
-                                        total_steps=args.n_inference_step,
-                                        guidance_scale=args.guidance_scale)
-    if lora_path == "":
-        register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
-    else:
-        register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
+        # inference the synthesized image
+        gen_image = model(
+            prompt=args.prompt,
+            batch_size=2,
+            latents=torch.cat([init_code_orig, updated_init_code], dim=0),
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.n_inference_step,
+            num_actual_inference_steps=args.n_actual_inference_step
+            )[1].unsqueeze(dim=0)
 
-    # inference the synthesized image
-    gen_image = model(
-        prompt=args.prompt,
-        batch_size=2,
-        latents=torch.cat([init_code_orig, updated_init_code], dim=0),
-        guidance_scale=args.guidance_scale,
-        num_inference_steps=args.n_inference_step,
-        num_actual_inference_steps=args.n_actual_inference_step
-        )[1].unsqueeze(dim=0)
+        if lora_path == "":
+            unregister_attention_editor_diffusers(model, ori_forward, attn_processor='attn_proc')
+        else:
+            unregister_attention_editor_diffusers(model, ori_forward, attn_processor='lora_attn_proc')
 
-    # resize gen_image into the size of source_image
-    # we do this because shape of gen_image will be rounded to multipliers of 8
-    gen_image = F.interpolate(gen_image, (full_h, full_w), mode='bilinear')
+        # resize gen_image into the size of source_image
+        # we do this because shape of gen_image will be rounded to multipliers of 8
+        gen_image = F.interpolate(gen_image, (full_h, full_w), mode='bilinear')
 
-    # save the original image, user editing instructions, synthesized image
-    save_result = torch.cat([
-        source_image * 0.5 + 0.5,
-        torch.ones((1,3,full_h,25)).cuda(),
-        image_with_clicks * 0.5 + 0.5,
-        torch.ones((1,3,full_h,25)).cuda(),
-        gen_image[0:1]
-    ], dim=-1)
-    # print(save_dir)
-    if not os.path.isdir(save_dir):
-        os.makedirs(save_dir)
-    save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-    save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
+        # save the original image, user editing instructions, synthesized image
+        save_result = torch.cat([
+            source_image * 0.5 + 0.5,
+            torch.ones((1,3,full_h,25)).cuda(),
+            image_with_clicks * 0.5 + 0.5,
+            torch.ones((1,3,full_h,25)).cuda(),
+            gen_image[0:1]
+        ], dim=-1)
+        # print(save_dir)
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+        save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+        save_image(save_result, os.path.join(save_dir, save_prefix + '.png'))
 
-    out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
-    out_image = (out_image * 255).astype(np.uint8)
-    return out_image
+        out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
+        out_image = (out_image * 255).astype(np.uint8)
+        out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
+        out_image = (out_image * 255).astype(np.uint8)
+        # total_image.appnend(out_image)
+        draw_handle_points =[]
+        draw_target_points = []
+        for idx, point in enumerate(current_points):
+            draw_cur_point = torch.tensor([point[0]/args.sup_res_h*full_h, point[1]/args.sup_res_w*full_w]).int()
+            draw_handle_points.append(draw_cur_point)
+        for idx, point in enumerate(target_points):
+            draw_tar_point = torch.tensor([point[0]/args.sup_res_h*full_h, point[1]/args.sup_res_w*full_w]).int()
+            draw_target_points.append(draw_tar_point)
+        out_image = draw_handle_target_points(out_image,draw_handle_points,draw_target_points)
+        logger.info(f"handle Points: {draw_handle_points}")
+        logger.info(f"Target Points: {draw_target_points}")
+        save_pts = PIL.Image.fromarray(out_image)
+        save_pts.save(os.path.join(save_dir, save_prefix + '_points.png'))
+        yield out_image
 
 # -------------------------------------------------------
 
@@ -391,6 +418,7 @@ def run_freedrag(source_image,
              d_max,
              sample_interval,
              save_dir="./results",
+             resolution=512,
              unet_feature_idx=[3],
     ):
     # initialize model
@@ -414,6 +442,7 @@ def run_freedrag(source_image,
     seed_everything(seed)
 
     args = SimpleNamespace()
+    args.lora_path = lora_path
     args.prompt = prompt
     args.points = points
     args.n_inference_step = 50
@@ -448,7 +477,7 @@ def run_freedrag(source_image,
     save_dir = os.path.join(save_dir,prompt.replace(' ','_')+'_'+str(l_expected)+'_'+str(latent_lr))
 
     logger=get_logger(save_dir+'/result.log')
-
+    logger.info("Using model "+model_path)
     logger.info(args)
 
 
@@ -512,14 +541,16 @@ def run_freedrag(source_image,
                                         total_steps=args.n_inference_step,
                                         guidance_scale=args.guidance_scale)
         if lora_path == "":
-            register_attention_editor_diffusers(model, editor, attn_processor='attn_proc')
+            ori_forward = register_attention_editor_diffusers_ori(model, editor, attn_processor='attn_proc')
         else:
-            register_attention_editor_diffusers(model, editor, attn_processor='lora_attn_proc')
+            ori_forward = register_attention_editor_diffusers_ori(model, editor, attn_processor='lora_attn_proc')
 
         # inference the synthesized image
         gen_image = model(
             prompt=args.prompt,
             batch_size=2,
+            height=resolution,
+            width=resolution,
             latents=torch.cat([init_code_orig, updated_init_code], dim=0),                                                                    
             guidance_scale=args.guidance_scale,
             num_inference_steps=args.n_inference_step,
@@ -529,6 +560,11 @@ def run_freedrag(source_image,
         # resize gen_image into the size of source_image
         # we do this because shape of gen_image will be rounded to multipliers of 8
         gen_image = F.interpolate(gen_image, (full_h, full_w), mode='bilinear')
+
+        if lora_path == "":
+            unregister_attention_editor_diffusers(model, ori_forward, attn_processor='attn_proc')
+        else:
+            unregister_attention_editor_diffusers(model, ori_forward, attn_processor='lora_attn_proc')
 
         # save the original image, user editing instructions, synthesized image
         save_result = torch.cat([
