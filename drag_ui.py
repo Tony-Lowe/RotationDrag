@@ -113,10 +113,11 @@ with gr.Blocks() as demo:
 
         with gr.Tab("LoRA Parameters"):
             with gr.Row():
-                lora_step_free = gr.Number(value=60, label="LoRA training steps", precision=0)
-                lora_lr_free = gr.Number(value=0.0005, label="LoRA learning rate")
+                lora_step_free = gr.Number(value=60, label="LoRA training steps",info="Suggest 140 for sdv2-1", precision=0)
+                lora_lr_free = gr.Number(value=0.0005, label="LoRA learning rate",info="Suggest 0.01 for sdv2-1")
                 lora_batch_size_free = gr.Number(value=4, label="LoRA batch size", precision=0)
                 lora_rank_free = gr.Number(value=16, label="LoRA rank", precision=0)
+                lora_resolution_free = gr.Number(value=512, label="LoRA train resolution",info="512 for 1-5, 768 for 2-1", precision=0)
 
     # UI components for editing real images
     with gr.Tab(label="Editing Real Image"):
@@ -311,7 +312,8 @@ with gr.Blocks() as demo:
 
     canvas_free.edit(
         store_img_free,
-        [canvas_free],
+        [canvas_free,
+         lora_resolution_free],
         [original_image_free, selected_points_free, input_image_free, mask_free]
     )
     input_image_free.select(
@@ -334,7 +336,8 @@ with gr.Blocks() as demo:
         lora_step_free,
         lora_lr_free,
         lora_batch_size_free,
-        lora_rank_free],
+        lora_rank_free,
+        lora_resolution_free],
         [lora_status_bar_free]
     )
     run_button_free.click(
@@ -357,6 +360,7 @@ with gr.Blocks() as demo:
         d_max,
         sample_interval,
         save_dir_free,
+        lora_resolution_free,
         ft_layer_idx_free,
         ],
         [output_image_free,

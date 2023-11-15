@@ -116,6 +116,7 @@ def train_lora(image,
     lora_batch_size,
     lora_rank,
     progress,
+    lora_resolution=512,
     save_interval=-1):
     # initialize accelerator
     accelerator = Accelerator(
@@ -224,8 +225,8 @@ def train_lora(image,
     # initialize latent distribution
     image_transforms = transforms.Compose(
         [
-            transforms.Resize(512, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.RandomCrop(512),
+            transforms.Resize(lora_resolution, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.RandomCrop(lora_resolution),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ]
