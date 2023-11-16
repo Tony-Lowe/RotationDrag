@@ -144,8 +144,10 @@ def drag_diffusion_update(model,
                 handle_points = point_tracking(F0, F1, handle_points, handle_points_init, args)
                 print('new handle points', handle_points)
 
+            
             # break if all handle points have reached the targets
             if check_handle_reach_target(handle_points, target_points):
+                ret_ft = F1.clone().cpu().detach()
                 break
 
             loss = 0.0

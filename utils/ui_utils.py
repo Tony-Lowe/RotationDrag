@@ -282,7 +282,10 @@ def run_drag(source_image,
 
     # print(args)
     save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
-    save_dir = os.path.join(save_dir,prompt.replace(' ','_'))
+    if prompt!= "":
+        save_dir = os.path.join(save_dir,prompt.replace(' ','_'))
+    else:
+        save_dir = os.path.join(save_dir,"None")
     save_dir = os.path.join(save_dir,save_prefix)
 
     if not os.path.isdir(save_dir):
