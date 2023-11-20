@@ -1,7 +1,7 @@
 # *************************************************************************
 # This file may have been modified by Bytedance Inc. (“Bytedance Inc.'s Mo-
 # difications”). All Bytedance Inc.'s Modifications are Copyright (2023) B-
-# ytedance Inc..  
+# ytedance Inc..
 # *************************************************************************
 
 import torch
@@ -15,14 +15,14 @@ def isinstance_str(x: object, cls_name: str):
     """
     Checks whether x has any class *named* cls_name in its ancestry.
     Doesn't require access to the class's implementation.
-    
+
     Useful for patching!
     """
 
     for _cls in x.__class__.__mro__:
         if _cls.__name__ == cls_name:
             return True
-    
+
     return False
 
 
@@ -32,30 +32,34 @@ def Fourier_filter(x, threshold, scale):
     # FFT
     x_freq = fft.fftn(x, dim=(-2, -1))
     x_freq = fft.fftshift(x_freq, dim=(-2, -1))
-    
-    B, C, H, W = x_freq.shape
-    mask = torch.ones((B, C, H, W)).cuda() 
 
-    crow, ccol = H // 2, W //2
-    mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
+    B, C, H, W = x_freq.shape
+    mask = torch.ones((B, C, H, W)).cuda()
+
+    crow, ccol = H // 2, W // 2
+    mask[
+        ..., crow - threshold : crow + threshold, ccol - threshold : ccol + threshold
+    ] = scale
     x_freq = x_freq * mask
 
     # IFFT
     x_freq = fft.ifftshift(x_freq, dim=(-2, -1))
     x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real
-    
+
     x_filtered = x_filtered.type(dtype)
     return x_filtered
 
 
 def register_upblock2d(model):
     def up_forward(self):
-        def forward(hidden_states, res_hidden_states_tuple, temb=None, upsample_size=None):
+        def forward(
+            hidden_states, res_hidden_states_tuple, temb=None, upsample_size=None
+        ):
             for resnet in self.resnets:
                 # pop res hidden states
                 res_hidden_states = res_hidden_states_tuple[-1]
                 res_hidden_states_tuple = res_hidden_states_tuple[:-1]
-                #print(f"in upblock2d, hidden states shape: {hidden_states.shape}")
+                # print(f"in upblock2d, hidden states shape: {hidden_states.shape}")
                 hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
 
                 if self.training and self.gradient_checkpointing:
@@ -68,7 +72,10 @@ def register_upblock2d(model):
 
                     if is_torch_version(">=", "1.11.0"):
                         hidden_states = torch.utils.checkpoint.checkpoint(
-                            create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
+                            create_custom_forward(resnet),
+                            hidden_states,
+                            temb,
+                            use_reentrant=False,
                         )
                     else:
                         hidden_states = torch.utils.checkpoint.checkpoint(
@@ -82,9 +89,9 @@ def register_upblock2d(model):
                     hidden_states = upsampler(hidden_states, upsample_size)
 
             return hidden_states
-        
+
         return forward
-    
+
     for i, upsample_block in enumerate(model.unet.up_blocks):
         if isinstance_str(upsample_block, "UpBlock2D"):
             upsample_block.forward = up_forward(upsample_block)
@@ -92,21 +99,27 @@ def register_upblock2d(model):
 
 def register_free_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
     def up_forward(self):
-        def forward(hidden_states, res_hidden_states_tuple, temb=None, upsample_size=None):
+        def forward(
+            hidden_states, res_hidden_states_tuple, temb=None, upsample_size=None
+        ):
             for resnet in self.resnets:
                 # pop res hidden states
                 res_hidden_states = res_hidden_states_tuple[-1]
                 res_hidden_states_tuple = res_hidden_states_tuple[:-1]
-                #print(f"in free upblock2d, hidden states shape: {hidden_states.shape}")
-                
+                # print(f"in free upblock2d, hidden states shape: {hidden_states.shape}")
+
                 # --------------- FreeU code -----------------------
                 # Only operate on the first two stages
                 if hidden_states.shape[1] == 1280:
-                    hidden_states[:,:640] = hidden_states[:,:640] * self.b1
-                    res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s1)
+                    hidden_states[:, :640] = hidden_states[:, :640] * self.b1
+                    res_hidden_states = Fourier_filter(
+                        res_hidden_states, threshold=1, scale=self.s1
+                    )
                 if hidden_states.shape[1] == 640:
-                    hidden_states[:,:320] = hidden_states[:,:320] * self.b2
-                    res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s2)
+                    hidden_states[:, :320] = hidden_states[:, :320] * self.b2
+                    res_hidden_states = Fourier_filter(
+                        res_hidden_states, threshold=1, scale=self.s2
+                    )
                 # ---------------------------------------------------------
 
                 hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
@@ -121,7 +134,10 @@ def register_free_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
 
                     if is_torch_version(">=", "1.11.0"):
                         hidden_states = torch.utils.checkpoint.checkpoint(
-                            create_custom_forward(resnet), hidden_states, temb, use_reentrant=False
+                            create_custom_forward(resnet),
+                            hidden_states,
+                            temb,
+                            use_reentrant=False,
                         )
                     else:
                         hidden_states = torch.utils.checkpoint.checkpoint(
@@ -135,16 +151,16 @@ def register_free_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
                     hidden_states = upsampler(hidden_states, upsample_size)
 
             return hidden_states
-        
+
         return forward
-    
+
     for i, upsample_block in enumerate(model.unet.up_blocks):
         if isinstance_str(upsample_block, "UpBlock2D"):
             upsample_block.forward = up_forward(upsample_block)
-            setattr(upsample_block, 'b1', b1)
-            setattr(upsample_block, 'b2', b2)
-            setattr(upsample_block, 's1', s1)
-            setattr(upsample_block, 's2', s2)
+            setattr(upsample_block, "b1", b1)
+            setattr(upsample_block, "b2", b2)
+            setattr(upsample_block, "s1", s1)
+            setattr(upsample_block, "s2", s2)
 
 
 def register_crossattn_upblock2d(model):
@@ -161,7 +177,7 @@ def register_crossattn_upblock2d(model):
         ):
             for resnet, attn in zip(self.resnets, self.attentions):
                 # pop res hidden states
-                #print(f"in crossatten upblock2d, hidden states shape: {hidden_states.shape}")
+                # print(f"in crossatten upblock2d, hidden states shape: {hidden_states.shape}")
                 res_hidden_states = res_hidden_states_tuple[-1]
                 res_hidden_states_tuple = res_hidden_states_tuple[:-1]
                 hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
@@ -177,7 +193,11 @@ def register_crossattn_upblock2d(model):
 
                         return custom_forward
 
-                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                    ckpt_kwargs: Dict[str, Any] = (
+                        {"use_reentrant": False}
+                        if is_torch_version(">=", "1.11.0")
+                        else {}
+                    )
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(resnet),
                         hidden_states,
@@ -211,9 +231,9 @@ def register_crossattn_upblock2d(model):
                     hidden_states = upsampler(hidden_states, upsample_size)
 
             return hidden_states
-        
+
         return forward
-    
+
     for i, upsample_block in enumerate(model.unet.up_blocks):
         if isinstance_str(upsample_block, "CrossAttnUpBlock2D"):
             upsample_block.forward = up_forward(upsample_block)
@@ -233,18 +253,22 @@ def register_free_crossattn_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
         ):
             for resnet, attn in zip(self.resnets, self.attentions):
                 # pop res hidden states
-                #print(f"in free crossatten upblock2d, hidden states shape: {hidden_states.shape}")
+                # print(f"in free crossatten upblock2d, hidden states shape: {hidden_states.shape}")
                 res_hidden_states = res_hidden_states_tuple[-1]
                 res_hidden_states_tuple = res_hidden_states_tuple[:-1]
 
                 # --------------- FreeU code -----------------------
                 # Only operate on the first two stages
                 if hidden_states.shape[1] == 1280:
-                    hidden_states[:,:640] = hidden_states[:,:640] * self.b1
-                    res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s1)
+                    hidden_states[:, :640] = hidden_states[:, :640] * self.b1
+                    res_hidden_states = Fourier_filter(
+                        res_hidden_states, threshold=1, scale=self.s1
+                    )
                 if hidden_states.shape[1] == 640:
-                    hidden_states[:,:320] = hidden_states[:,:320] * self.b2
-                    res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s2)
+                    hidden_states[:, :320] = hidden_states[:, :320] * self.b2
+                    res_hidden_states = Fourier_filter(
+                        res_hidden_states, threshold=1, scale=self.s2
+                    )
                 # ---------------------------------------------------------
 
                 hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
@@ -260,7 +284,11 @@ def register_free_crossattn_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
 
                         return custom_forward
 
-                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                    ckpt_kwargs: Dict[str, Any] = (
+                        {"use_reentrant": False}
+                        if is_torch_version(">=", "1.11.0")
+                        else {}
+                    )
                     hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(resnet),
                         hidden_states,
@@ -298,13 +326,13 @@ def register_free_crossattn_upblock2d(model, b1=1.2, b2=1.4, s1=0.9, s2=0.2):
                     hidden_states = upsampler(hidden_states, upsample_size)
 
             return hidden_states
-        
+
         return forward
-    
+
     for i, upsample_block in enumerate(model.unet.up_blocks):
         if isinstance_str(upsample_block, "CrossAttnUpBlock2D"):
             upsample_block.forward = up_forward(upsample_block)
-            setattr(upsample_block, 'b1', b1)
-            setattr(upsample_block, 'b2', b2)
-            setattr(upsample_block, 's1', s1)
-            setattr(upsample_block, 's2', s2)
+            setattr(upsample_block, "b1", b1)
+            setattr(upsample_block, "b2", b2)
+            setattr(upsample_block, "s1", s1)
+            setattr(upsample_block, "s2", s2)

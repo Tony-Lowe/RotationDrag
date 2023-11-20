@@ -1,7 +1,7 @@
 # *************************************************************************
 # This file may have been modified by Bytedance Inc. (“Bytedance Inc.'s Mo-
 # difications”). All Bytedance Inc.'s Modifications are Copyright (2023) B-
-# ytedance Inc..  
+# ytedance Inc..
 # *************************************************************************
 
 from PIL import Image
@@ -43,7 +43,9 @@ from diffusers.utils.import_utils import is_xformers_available
 check_min_version("0.17.0")
 
 
-def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
+def import_model_class_from_model_name_or_path(
+    pretrained_model_name_or_path: str, revision: str
+):
     text_encoder_config = PretrainedConfig.from_pretrained(
         pretrained_model_name_or_path,
         subfolder="text_encoder",
@@ -56,7 +58,9 @@ def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: st
 
         return CLIPTextModel
     elif model_class == "RobertaSeriesModelWithTransformation":
-        from diffusers.pipelines.alt_diffusion.modeling_roberta_series import RobertaSeriesModelWithTransformation
+        from diffusers.pipelines.alt_diffusion.modeling_roberta_series import (
+            RobertaSeriesModelWithTransformation,
+        )
 
         return RobertaSeriesModelWithTransformation
     elif model_class == "T5EncoderModel":
@@ -65,6 +69,7 @@ def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: st
         return T5EncoderModel
     else:
         raise ValueError(f"{model_class} is not supported.")
+
 
 def tokenize_prompt(tokenizer, prompt, tokenizer_max_length=None):
     if tokenizer_max_length is not None:
@@ -82,7 +87,10 @@ def tokenize_prompt(tokenizer, prompt, tokenizer_max_length=None):
 
     return text_inputs
 
-def encode_prompt(text_encoder, input_ids, attention_mask, text_encoder_use_attention_mask=False):
+
+def encode_prompt(
+    text_encoder, input_ids, attention_mask, text_encoder_use_attention_mask=False
+):
     text_input_ids = input_ids.to(text_encoder.device)
 
     if text_encoder_use_attention_mask:
@@ -98,6 +106,7 @@ def encode_prompt(text_encoder, input_ids, attention_mask, text_encoder_use_atte
 
     return prompt_embeds
 
+
 # model_path: path of the model
 # image: input image, have not been pre-processed
 # save_lora_path: the path to save the lora
@@ -106,7 +115,8 @@ def encode_prompt(text_encoder, input_ids, attention_mask, text_encoder_use_atte
 # lora_lr: learning rate of lora training
 # lora_rank: the rank of lora
 # save_interval: the frequency of saving lora checkpoints
-def train_lora(image,
+def train_lora(
+    image,
     prompt,
     model_path,
     vae_path,
@@ -117,12 +127,10 @@ def train_lora(image,
     lora_rank,
     progress,
     lora_resolution=512,
-    save_interval=-1):
+    save_interval=-1,
+):
     # initialize accelerator
-    accelerator = Accelerator(
-        gradient_accumulation_steps=1,
-        mixed_precision='fp16'
-    )
+    accelerator = Accelerator(gradient_accumulation_steps=1, mixed_precision="fp16")
     set_seed(0)
 
     # Load the tokenizer
@@ -134,14 +142,14 @@ def train_lora(image,
     )
     # initialize the model
     noise_scheduler = DDPMScheduler.from_pretrained(model_path, subfolder="scheduler")
-    text_encoder_cls = import_model_class_from_model_name_or_path(model_path, revision=None)
+    text_encoder_cls = import_model_class_from_model_name_or_path(
+        model_path, revision=None
+    )
     text_encoder = text_encoder_cls.from_pretrained(
         model_path, subfolder="text_encoder", revision=None
     )
     if vae_path == "default":
-        vae = AutoencoderKL.from_pretrained(
-            model_path, subfolder="vae", revision=None
-        )
+        vae = AutoencoderKL.from_pretrained(model_path, subfolder="vae", revision=None)
     else:
         vae = AutoencoderKL.from_pretrained(vae_path)
     unet = UNet2DConditionModel.from_pretrained(
@@ -162,7 +170,11 @@ def train_lora(image,
     # initialize UNet LoRA
     unet_lora_attn_procs = {}
     for name, attn_processor in unet.attn_processors.items():
-        cross_attention_dim = None if name.endswith("attn1.processor") else unet.config.cross_attention_dim
+        cross_attention_dim = (
+            None
+            if name.endswith("attn1.processor")
+            else unet.config.cross_attention_dim
+        )
         if name.startswith("mid_block"):
             hidden_size = unet.config.block_out_channels[-1]
         elif name.startswith("up_blocks"):
@@ -172,23 +184,32 @@ def train_lora(image,
             block_id = int(name[len("down_blocks.")])
             hidden_size = unet.config.block_out_channels[block_id]
         else:
-            raise NotImplementedError("name must start with up_blocks, mid_blocks, or down_blocks")
+            raise NotImplementedError(
+                "name must start with up_blocks, mid_blocks, or down_blocks"
+            )
 
-        if isinstance(attn_processor, (AttnAddedKVProcessor, SlicedAttnAddedKVProcessor, AttnAddedKVProcessor2_0)):
+        if isinstance(
+            attn_processor,
+            (AttnAddedKVProcessor, SlicedAttnAddedKVProcessor, AttnAddedKVProcessor2_0),
+        ):
             lora_attn_processor_class = LoRAAttnAddedKVProcessor
         else:
             lora_attn_processor_class = (
-                LoRAAttnProcessor2_0 if hasattr(F, "scaled_dot_product_attention") else LoRAAttnProcessor
+                LoRAAttnProcessor2_0
+                if hasattr(F, "scaled_dot_product_attention")
+                else LoRAAttnProcessor
             )
         unet_lora_attn_procs[name] = lora_attn_processor_class(
-            hidden_size=hidden_size, cross_attention_dim=cross_attention_dim, rank=lora_rank
+            hidden_size=hidden_size,
+            cross_attention_dim=cross_attention_dim,
+            rank=lora_rank,
         )
 
     unet.set_attn_processor(unet_lora_attn_procs)
     unet_lora_layers = AttnProcsLayers(unet.attn_processors)
 
     # Optimizer creation
-    params_to_optimize = (unet_lora_layers.parameters())
+    params_to_optimize = unet_lora_layers.parameters()
     optimizer = torch.optim.AdamW(
         params_to_optimize,
         lr=lora_lr,
@@ -218,14 +239,16 @@ def train_lora(image,
             text_encoder,
             text_inputs.input_ids,
             text_inputs.attention_mask,
-            text_encoder_use_attention_mask=False
+            text_encoder_use_attention_mask=False,
         )
         text_embedding = text_embedding.repeat(lora_batch_size, 1, 1)
 
     # initialize latent distribution
     image_transforms = transforms.Compose(
         [
-            transforms.Resize(lora_resolution, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.Resize(
+                lora_resolution, interpolation=transforms.InterpolationMode.BILINEAR
+            ),
             transforms.RandomCrop(lora_resolution),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
@@ -236,7 +259,9 @@ def train_lora(image,
         unet.train()
         image_batch = []
         for _ in range(lora_batch_size):
-            image_transformed = image_transforms(Image.fromarray(image)).to(device, dtype=torch.float16)
+            image_transformed = image_transforms(Image.fromarray(image)).to(
+                device, dtype=torch.float16
+            )
             image_transformed = image_transformed.unsqueeze(dim=0)
             image_batch.append(image_transformed)
 
@@ -250,7 +275,10 @@ def train_lora(image,
         bsz, channels, height, width = model_input.shape
         # Sample a random timestep for each image
         timesteps = torch.randint(
-            0, noise_scheduler.config.num_train_timesteps, (bsz,), device=model_input.device
+            0,
+            noise_scheduler.config.num_train_timesteps,
+            (bsz,),
+            device=model_input.device,
         )
         timesteps = timesteps.long()
 
@@ -267,7 +295,9 @@ def train_lora(image,
         elif noise_scheduler.config.prediction_type == "v_prediction":
             target = noise_scheduler.get_velocity(model_input, noise, timesteps)
         else:
-            raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+            raise ValueError(
+                f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+            )
 
         loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
         accelerator.backward(loss)
@@ -276,7 +306,7 @@ def train_lora(image,
         optimizer.zero_grad()
 
         if save_interval > 0 and (step + 1) % save_interval == 0:
-            save_lora_path_intermediate = os.path.join(save_lora_path, str(step+1))
+            save_lora_path_intermediate = os.path.join(save_lora_path, str(step + 1))
             if not os.path.isdir(save_lora_path_intermediate):
                 os.mkdir(save_lora_path_intermediate)
             # unet = unet.to(torch.float32)

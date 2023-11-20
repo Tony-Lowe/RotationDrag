@@ -9,9 +9,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from sklearn.decomposition import PCA
 
-def get_ellipse_coords(
-    point, radius: int = 5
-):
+
+def get_ellipse_coords(point, radius: int = 5):
     """
     Returns the coordinates of an ellipse centered at the given point.
 
@@ -30,12 +29,14 @@ def get_ellipse_coords(
         center[1] + radius,
     )
 
+
 def draw_handle_target_points(
-        img: PIL.Image.Image,
-        handle_points: List,
-        target_points: List,
-        radius: int = 5,
-        color = "red"):
+    img: PIL.Image.Image,
+    handle_points: List,
+    target_points: List,
+    radius: int = 5,
+    color="red",
+):
     """
     Draws handle and target points with arrow pointing towards the target point.
 
@@ -65,7 +66,7 @@ def draw_handle_target_points(
             draw.ellipse(target_coords, fill="blue")
 
             # Draw arrow head
-            arrow_head_length = radius*1.5
+            arrow_head_length = radius * 1.5
 
             # Compute the direction vector of the line
             dx = target_point[0] - handle_point[0]
@@ -79,7 +80,11 @@ def draw_handle_target_points(
             )
 
             # Draw the arrow (main line)
-            draw.line([tuple(handle_point), shortened_target_point], fill='white', width=int(0.8*radius))
+            draw.line(
+                [tuple(handle_point), shortened_target_point],
+                fill="white",
+                width=int(0.8 * radius),
+            )
 
             # Compute the points for the arrowhead
             arrow_point1 = (
@@ -93,20 +98,23 @@ def draw_handle_target_points(
             )
 
             # Draw the arrowhead
-            draw.polygon([tuple(target_point), arrow_point1, arrow_point2], fill='white')
+            draw.polygon(
+                [tuple(target_point), arrow_point1, arrow_point2], fill="white"
+            )
     return np.array(img)
 
+
 def compute_featruemap(desc):
-    N,C,H,W = desc.shape
-    desc_reshaped = desc.cpu().view(C,-1).permute(1,0)
+    N, C, H, W = desc.shape
+    desc_reshaped = desc.cpu().view(C, -1).permute(1, 0)
     n_components = 3
     pca = PCA(n_components=n_components)
     reduced_desc = pca.fit_transform(desc_reshaped)
     # Stack the reduced channel data back into the original shape
-    heatmap = reduced_desc.reshape(H,W,n_components)
+    heatmap = reduced_desc.reshape(H, W, n_components)
     # Visualize the reduced feature map (example for a single channel)
     # heatmap = heatmap.reshape(H, W)
-    heatmap = (heatmap-np.min(heatmap))/(np.max(heatmap)-np.min(heatmap))
+    heatmap = (heatmap - np.min(heatmap)) / (np.max(heatmap) - np.min(heatmap))
     return heatmap
 
 
@@ -121,13 +129,13 @@ def draw_featuremap(desc: torch.Tensor) -> plt.Figure:
     heatmap = compute_featruemap(desc)
 
     plt.autoscale(tight=True)
-    
+
     fig, ax = plt.subplots()
-    plt.axis('off')
-    ax.axis('off')
-    ax.imshow(heatmap, cmap='viridis')
+    plt.axis("off")
+    ax.axis("off")
+    ax.imshow(heatmap, cmap="viridis")
     ax.set_xlim(0, desc.shape[3])
     ax.set_ylim(desc.shape[2], 0)
 
-    fig.subplots_adjust(left=None,bottom=None,right=None,wspace=0,hspace=None)
+    fig.subplots_adjust(left=None, bottom=None, right=None, wspace=0, hspace=None)
     return fig
