@@ -279,7 +279,7 @@ def run_drag(
     start_layer,
     save_dir="./results",
     unet_feature_idx=[3],
-    sample_interval=5,
+    sample_interval=10,
 ):
     # initialize model
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -326,6 +326,7 @@ def run_drag(
     args.sup_res_h = int(0.5 * full_h)
     args.sup_res_w = int(0.5 * full_w)
     args.sample_interval = sample_interval
+    args.prompt = prompt
 
     # print(args)
     save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
