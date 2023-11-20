@@ -21,7 +21,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from loguru import logger
-from utils.logger import get_logger
+from torchvision.transforms.functional import rotate
+from math import pi
 
 
 def point_tracking(F0, F1, handle_points, handle_points_init, args):
@@ -161,6 +162,152 @@ def drag_diffusion_update(
 
             loss = 0.0
             for i in range(len(handle_points)):
+                pi, ti = handle_points[i], target_points[i]
+                # skip if the distance between target and source is less than 1
+                if (ti - pi).norm() < 2.0:
+                    continue
+
+                di = (ti - pi) / (ti - pi).norm()
+
+                # motion supervision
+                f0_patch = F1[
+                    :,
+                    :,
+                    int(pi[0]) - args.r_m : int(pi[0]) + args.r_m + 1,
+                    int(pi[1]) - args.r_m : int(pi[1]) + args.r_m + 1,
+                ].detach()
+                f1_patch = interpolate_feature_patch(
+                    F1, pi[0] + di[0], pi[1] + di[1], args.r_m
+                )
+                loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
+
+            # masked region must stay unchanged
+            loss += (
+                args.lam
+                * ((x_prev_updated - x_prev_0) * (1.0 - interp_mask)).abs().sum()
+            )
+            # loss += args.lam * ((init_code_orig-init_code)*(1.0-interp_mask)).abs().sum()
+            print("loss total=%f" % (loss.item()))
+
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+        optimizer.zero_grad()
+        ret_ft = F1.clone().cpu().detach()
+        if step_idx % args.sample_interval == 0:
+            yield init_code, handle_points, ret_ft
+    yield init_code, handle_points, ret_ft
+
+
+def get_rotation(current_pt, angles):
+    """
+    :params current_pt: current handle points shape of N*2
+    :params angles: angles to rotate, shape of intervals*N
+    returns rotated points shape of intervals*N*2
+    """
+    current_pt_repeat = current_pt.repeat_interleave(angles.shape[0], dim=0)
+    angles_repeat = angles.repeat(current_pt.shape[0], 1)
+    rotated_pt = torch.cat(
+        (
+            current_pt_repeat[:, 0].unsqueeze(1) * torch.cos(angles_repeat)
+            - current_pt_repeat[:, 1].unsqueeze(1) * torch.sin(angles_repeat),
+            current_pt_repeat[:, 0].unsqueeze(1) * torch.sin(angles_repeat)
+            + current_pt_repeat[:, 1].unsqueeze(1) * torch.cos(angles_repeat),
+        ),
+        dim=1,
+    )
+    return rotated_pt
+
+def get_each_angle(current,target_final,curr_ini,max_angle,offset_matrix):
+    """
+    :param current: tensor shape of N*2, current handle points
+    :param target_final: tensor same shape with current, final taget points
+    :param max_angle: maximum angle of rotation [0, 180]
+    :param offset_matrix: help to compute the patch around handle points
+    """
+    curr_angles = torch.atan2(current[:,1]-curr_ini[:,1],current[:,0]-curr_ini[:,0])
+    angles_remain = torch.atan2(target_final[:,1]-current[:,1],target_final[:,0]-current[:,0])
+    angles_max = max_angle
+    interval_number = 5
+    intervals = torch.arange(0,1+1/interval_number,1/interval_number,device=current.device)[1:].unsqueeze(1)
+    target_angle_max = curr_angles + min(angles_max/(angles_remain+1e-8),1)*angles_remain
+    candidate_angles = (1-intervals)*curr_angles.unsqueeze(0)+intervals*target_angle_max.unsqueeze(0)
+    candidate_points = get_rotation(current,candidate_angles)
+    # TODO: make angle rotation just like freedrag get_each_point()
+
+def drag_diffusion_update_r(
+    model, init_code, t, handle_points, target_points, mask, source_image, args
+):
+    assert len(handle_points) == len(
+        target_points
+    ), "number of handle point must equals target points"
+
+    text_emb = model.get_text_embeddings(args.prompt).detach()
+    # the init output feature of unet
+    with torch.no_grad():
+        unet_output, F0 = model.forward_unet_features(
+            init_code,
+            t,
+            encoder_hidden_states=text_emb,
+            layer_idx=args.unet_feature_idx,
+            interp_res_h=args.sup_res_h,
+            interp_res_w=args.sup_res_w,
+        )
+        x_prev_0, _ = model.step(unet_output, t, init_code)
+        # init_code_orig = copy.deepcopy(init_code)
+
+    # prepare optimizable init_code and optimizer
+    init_code.requires_grad_(True)
+    optimizer = torch.optim.Adam([init_code], lr=args.lr)
+
+    # prepare for point tracking and background regularization
+    handle_points_init = copy.deepcopy(handle_points)
+    interp_mask = F.interpolate(
+        mask, (init_code.shape[2], init_code.shape[3]), mode="nearest"
+    )
+
+    # prepare amp scaler for mixed-precision training
+    scaler = torch.cuda.amp.GradScaler()
+    for step_idx in range(args.n_pix_step):
+        with torch.autocast(device_type="cuda", dtype=torch.float16):
+            unet_output, F1 = model.forward_unet_features(
+                init_code,
+                t,
+                encoder_hidden_states=text_emb,
+                layer_idx=args.unet_feature_idx,
+                interp_res_h=args.sup_res_h,
+                interp_res_w=args.sup_res_w,
+            )
+            x_prev_updated, _ = model.step(unet_output, t, init_code)
+
+            # do point tracking to update handle points before computing motion supervision loss
+            if step_idx != 0:
+                handle_points = point_tracking(
+                    F0, F1, handle_points, handle_points_init, args
+                )
+                print("new handle points", handle_points)
+
+            # break if all handle points have reached the targets
+            if check_handle_reach_target(handle_points, target_points):
+                ret_ft = F1.clone().cpu().detach()
+                break
+
+            loss = 0.0
+            angles = get_angle(handle_points_init,handle_points)
+            for i in range(len(handle_points)):
+                # %----------------------------%
+                # Adding Rotation Modification
+                with torch.no_grad():
+                    rot_img = source_image.clone().detach()
+                    rot_img = rotate(rot_img, angles[i])
+                    lat_r = model.invert(
+                        rot_img,
+                        prompt=args.prompt,
+                        guidance_scale=args.guidance_scale,
+                        num_inference_steps=args.n_inference_step,
+                        num_actual_inference_steps=args.n_actual_inference_step,
+                    )
+                # %----------------------------%
                 pi, ti = handle_points[i], target_points[i]
                 # skip if the distance between target and source is less than 1
                 if (ti - pi).norm() < 2.0:
