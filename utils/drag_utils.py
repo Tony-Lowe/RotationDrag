@@ -201,9 +201,9 @@ def drag_diffusion_update(
 
 def get_rotation(current_pt, angles):
     """
-    :params current_pt: current handle points shape of N*2
-    :params angles: angles to rotate, shape of intervals*N
-    returns rotated points shape of intervals*N*2
+    :params current_pt: current handle points shape of 1*2
+    :params angles: angles to rotate, shape of intervals*1
+    returns rotated points shape of intervals*2
     """
     current_pt_repeat = current_pt.repeat_interleave(angles.shape[0], dim=0)
     angles_repeat = angles.repeat(current_pt.shape[0], 1)
@@ -220,7 +220,7 @@ def get_rotation(current_pt, angles):
 
 def get_each_angle(current,target_final,curr_ini,max_angle,offset_matrix):
     """
-    :param current: tensor shape of N*2, current handle points
+    :param current: tensor shape of 1*2, current handle points
     :param target_final: tensor same shape with current, final taget points
     :param max_angle: maximum angle of rotation [0, 180]
     :param offset_matrix: help to compute the patch around handle points
@@ -232,7 +232,11 @@ def get_each_angle(current,target_final,curr_ini,max_angle,offset_matrix):
     intervals = torch.arange(0,1+1/interval_number,1/interval_number,device=current.device)[1:].unsqueeze(1)
     target_angle_max = curr_angles + min(angles_max/(angles_remain+1e-8),1)*angles_remain
     candidate_angles = (1-intervals)*curr_angles.unsqueeze(0)+intervals*target_angle_max.unsqueeze(0)
-    candidate_points = get_rotation(current,candidate_angles)
+    candidate_points = get_rotation(current,candidate_angles) # intervals * 2
+    candidate_points_repeat = candidate_points.repeat_interleave(offset_matrix.shape[0],dim=0) # [intervals * 9, 2]
+    offset_matrix_repeat = offset_matrix.repeat(intervals.shape[0],1) # [intervals * 9, 2]
+    candidate_points_local = candidate_points_repeat + offset_matrix_repeat
+    
     # TODO: make angle rotation just like freedrag get_each_point()
 
 def drag_diffusion_update_r(
