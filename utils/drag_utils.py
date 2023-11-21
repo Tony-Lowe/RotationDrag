@@ -236,8 +236,8 @@ def get_rotated_features(model, angles, args):
         num_inference_steps=args.n_inference_step,
         num_actual_inference_steps=args.n_actual_inference_step,
     )
-    rotated_features = model.forward_unet_features(rotated_invert_code)
-    return rotated_features
+    unet_output, rotated_features = model.forward_unet_features(rotated_invert_code)
+    return rotated_features,rotated_invert_code
 
 
 def get_each_angle(
@@ -283,7 +283,7 @@ def get_each_angle(
     )  # [intervals * 9, 2]
     candidate_points_local = candidate_points_repeat + offset_matrix_repeat
     for idx, angle in enumerate(candidate_angles):
-        ft = get_rotated_features(model, angle, args)  # 1*c*h*w
+        ft, rotated_lat = get_rotated_features(model, angle, args)  # 1*c*h*w
         ft_patch = interpolate_feature_patch_plus(
             ft, candidate_points_local[idx * 9 : (idx + 1) * 9, :]
         )  # [9,C]
@@ -317,7 +317,7 @@ def get_each_angle(
     all_dist = all_dist.squeeze(dim=0)
     row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
     current[0] = current[0] - args.r_p + row
-    current[1] = current[1] - args.r_p +col
+    current[1] = current[1] - args.r_p + col
     return current
     # TODO: Doesn't make sense. Still need to think about how to update Motion supervison's feature
 
