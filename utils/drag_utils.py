@@ -201,46 +201,129 @@ def drag_diffusion_update(
 
 def get_rotation(current_pt, angles):
     """
-    :params current_pt: current handle points shape of 1*2
-    :params angles: angles to rotate, shape of intervals*1
-    returns rotated points shape of intervals*2
+    :params current_pt: current handle points shape of [2]
+    :params angles: angles to rotate, shape of [intervals]
+    :returns: rotated points shape of intervals*2
     """
+    current_pt = current_pt.unsqueeze(0)
+    # angles = angles.unsqueeze(1)
     current_pt_repeat = current_pt.repeat_interleave(angles.shape[0], dim=0)
-    angles_repeat = angles.repeat(current_pt.shape[0], 1)
+    # angles_repeat = angles.repeat(current_pt.shape[0], 1)
     rotated_pt = torch.cat(
         (
-            current_pt_repeat[:, 0].unsqueeze(1) * torch.cos(angles_repeat)
-            - current_pt_repeat[:, 1].unsqueeze(1) * torch.sin(angles_repeat),
-            current_pt_repeat[:, 0].unsqueeze(1) * torch.sin(angles_repeat)
-            + current_pt_repeat[:, 1].unsqueeze(1) * torch.cos(angles_repeat),
+            current_pt_repeat[:, 0].unsqueeze(1) * torch.cos(angles)
+            - current_pt_repeat[:, 1].unsqueeze(1) * torch.sin(angles),
+            current_pt_repeat[:, 0].unsqueeze(1) * torch.sin(angles)
+            + current_pt_repeat[:, 1].unsqueeze(1) * torch.cos(angles),
         ),
         dim=1,
     )
     return rotated_pt
 
-def get_each_angle(current,target_final,curr_ini,max_angle,offset_matrix):
+
+def get_rotated_features(model, angles, args):
     """
-    :param current: tensor shape of 1*2, current handle points
+    :params model: diffusion model
+    :params source_image: source image, use it to generate features shape of 1*3*H*W
+    :params angles: angles to rotate, shape of intervals*1, range: [0, pi]
+    :returns: rotated features shape of intervals*1*H*W
+    """
+    rotated_image = rotate(args.source_image, angles * 180 / pi)
+    rotated_invert_code = model.invert(  # TODO: add them in args
+        args.source_image,
+        args.prompt,
+        guidance_scale=args.guidance_scale,
+        num_inference_steps=args.n_inference_step,
+        num_actual_inference_steps=args.n_actual_inference_step,
+    )
+    rotated_features = model.forward_unet_features(rotated_invert_code)
+    return rotated_features
+
+
+def get_each_angle(
+    model,
+    current,
+    target_final,
+    curr_ini,
+    F1,
+    max_angle,
+    offset_matrix,
+    args,
+):
+    """
+    :param current: tensor shape of 2, current handle points
     :param target_final: tensor same shape with current, final taget points
-    :param max_angle: maximum angle of rotation [0, 180]
+    :param curr_ini: Initial source point
+    :param F1: Updated Feature
+    :param max_angle: maximum angle of rotation [0, pi]
     :param offset_matrix: help to compute the patch around handle points
+    :param args: args passed by main threads, has source_image, prompt,etc
     """
-    curr_angles = torch.atan2(current[:,1]-curr_ini[:,1],current[:,0]-curr_ini[:,0])
-    angles_remain = torch.atan2(target_final[:,1]-current[:,1],target_final[:,0]-current[:,0])
-    angles_max = max_angle
-    interval_number = 5
-    intervals = torch.arange(0,1+1/interval_number,1/interval_number,device=current.device)[1:].unsqueeze(1)
-    target_angle_max = curr_angles + min(angles_max/(angles_remain+1e-8),1)*angles_remain
-    candidate_angles = (1-intervals)*curr_angles.unsqueeze(0)+intervals*target_angle_max.unsqueeze(0)
-    candidate_points = get_rotation(current,candidate_angles) # intervals * 2
-    candidate_points_repeat = candidate_points.repeat_interleave(offset_matrix.shape[0],dim=0) # [intervals * 9, 2]
-    offset_matrix_repeat = offset_matrix.repeat(intervals.shape[0],1) # [intervals * 9, 2]
+    curr_angle = torch.atan2(
+        current[1] - curr_ini[1], current[0] - curr_ini[0]
+    ) # [1]
+    angle_remain = torch.atan2(
+        target_final[1] - current[1], target_final[0] - current[0]
+    ) # [1]
+    angle_max = max_angle
+    interval_number = args.interval_number  # TODO: add them in args
+    intervals = torch.arange(
+        0, 1 + 1 / interval_number, 1 / interval_number, device=current.device
+    )[1:].unsqueeze(1)  # [intervals, 1]
+    target_angle_max = (
+        curr_angle + min(angle_max / (angle_remain + 1e-8), 1) * angle_remain
+    ) 
+    candidate_angles = (1 - intervals) * curr_angle.unsqueeze(0) + intervals * target_angle_max.unsqueeze(0) # [intervals, 1]
+    candidate_points = get_rotation(current, candidate_angles)  # [intervals * 2]
+    candidate_points_repeat = candidate_points.repeat_interleave(
+        offset_matrix.shape[0], dim=0
+    )  # [intervals * 9, 2]
+    offset_matrix_repeat = offset_matrix.repeat(
+        intervals.shape[0], 1
+    )  # [intervals * 9, 2]
     candidate_points_local = candidate_points_repeat + offset_matrix_repeat
-    
-    # TODO: make angle rotation just like freedrag get_each_point()
+    for idx, angle in enumerate(candidate_angles):
+        ft = get_rotated_features(model, angle, args)  # 1*c*h*w
+        ft_patch = interpolate_feature_patch_plus(
+            ft, candidate_points_local[idx * 9 : (idx + 1) * 9, :]
+        )  # [9,C]
+        if idx == 0:
+            pt_ft_all = ft[
+                :, :, int(candidate_points[idx, 0]), int(candidate_points[idx, 1])
+            ]  # [1,C]
+            ft_patch_all = ft_patch
+        else:
+            pt_ft_all = torch.cat(
+                (pt_ft_all, ft)
+            )  # In the end, we get a tensor shape of [intervals,C]
+            ft_patch_all = torch.cat(
+                (ft_patch_all, ft_patch)
+            )  # In the end, we get a tensor shape of [intervals*9,C]
+    ft_patch_all = ft_patch_all.reshape((intervals.shape[0], -1))
+    dif_patch = abs(
+        ft_patch_all
+        - interpolate_feature_patch_plus(F1, current + offset_matrix)
+        .flatten(0)
+        .unsqueeze(0)
+    ).mean(1)  # intervals*[distance in feature space]
+
+    # point tracking
+    min_idx = torch.argmin(dif_patch)
+    f0 = ft_patch_all[min_idx, :]
+    y1, y2 = int(current[0]) - args.r_p, int(current[0]) + args.r_p
+    x1, x2 = int(current[1]) - args.r_p, int(current[1]) + args.r_p
+    F1_neighbor = F1[:, :, y1:y2, x1:x2]
+    all_dist = (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
+    all_dist = all_dist.squeeze(dim=0)
+    row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
+    current[0] = current[0] - args.r_p + row
+    current[1] = current[1] - args.r_p +col
+    return current
+    # TODO: Doesn't make sense. Still need to think about how to update Motion supervison's feature
+
 
 def drag_diffusion_update_r(
-    model, init_code, t, handle_points, target_points, mask, source_image, args
+    model, init_code, t, handle_points, target_points, mask, args
 ):
     assert len(handle_points) == len(
         target_points
@@ -297,7 +380,7 @@ def drag_diffusion_update_r(
                 break
 
             loss = 0.0
-            angles = get_angle(handle_points_init,handle_points)
+            angles = get_angle(handle_points_init, handle_points)
             for i in range(len(handle_points)):
                 # %----------------------------%
                 # Adding Rotation Modification
