@@ -38,12 +38,14 @@ from drag_pipeline import DragPipeline
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
 from loguru import logger
+from math import pi
 
 from .logger import get_logger
 from .drag_utils import (
     drag_diffusion_update,
     drag_diffusion_update_gen,
     free_drag_update,
+    drag_diffusion_update_r,
 )
 from .lora_utils import train_lora
 from .attn_utils import (
@@ -391,6 +393,255 @@ def run_drag(
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
     for updated_init_code, current_points, ft in drag_diffusion_update(
+        model, init_code, t, handle_points, target_points, mask, args
+    ):
+        # hijack the attention module
+        # inject the reference branch to guide the generation
+        editor = MutualSelfAttentionControl(
+            start_step=start_step,
+            start_layer=start_layer,
+            total_steps=args.n_inference_step,
+            guidance_scale=args.guidance_scale,
+        )
+        if lora_path == "":
+            ori_forward = register_attention_editor_diffusers_ori(
+                model, editor, attn_processor="attn_proc"
+            )
+        else:
+            ori_forward = register_attention_editor_diffusers_ori(
+                model, editor, attn_processor="lora_attn_proc"
+            )
+
+        # inference the synthesized image
+        gen_image = model(
+            prompt=args.prompt,
+            batch_size=2,
+            latents=torch.cat([init_code_orig, updated_init_code], dim=0),
+            guidance_scale=args.guidance_scale,
+            num_inference_steps=args.n_inference_step,
+            num_actual_inference_steps=args.n_actual_inference_step,
+        )[1].unsqueeze(dim=0)
+
+        if lora_path == "":
+            unregister_attention_editor_diffusers(
+                model, ori_forward, attn_processor="attn_proc"
+            )
+        else:
+            unregister_attention_editor_diffusers(
+                model, ori_forward, attn_processor="lora_attn_proc"
+            )
+
+        # resize gen_image into the size of source_image
+        # we do this because shape of gen_image will be rounded to multipliers of 8
+        gen_image = F.interpolate(gen_image, (full_h, full_w), mode="bilinear")
+
+        # save the original image, user editing instructions, synthesized image
+        save_result = torch.cat(
+            [
+                source_image * 0.5 + 0.5,
+                torch.ones((1, 3, full_h, 25)).cuda(),
+                image_with_clicks * 0.5 + 0.5,
+                torch.ones((1, 3, full_h, 25)).cuda(),
+                gen_image[0:1],
+            ],
+            dim=-1,
+        )
+        # print(save_dir)
+        save_dir_3_col = save_dir + "/3_col"
+        if not os.path.isdir(save_dir_3_col):
+            os.makedirs(save_dir_3_col)
+        save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+        save_image(save_result, os.path.join(save_dir_3_col, save_prefix + ".png"))
+
+        out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
+        out_image = (out_image * 255).astype(np.uint8)
+        out_image = gen_image.cpu().permute(0, 2, 3, 1).numpy()[0]
+        out_image = (out_image * 255).astype(np.uint8)
+        # total_image.appnend(out_image)
+        draw_handle_points = []
+        draw_target_points = []
+        for idx, point in enumerate(current_points):
+            draw_cur_point = torch.tensor(
+                [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
+            ).int()
+            draw_handle_points.append(draw_cur_point)
+        for idx, point in enumerate(target_points):
+            draw_tar_point = torch.tensor(
+                [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
+            ).int()
+            draw_target_points.append(draw_tar_point)
+        out_image = draw_handle_target_points(
+            out_image, draw_handle_points, draw_target_points
+        )
+        logger.info(f"handle Points: {draw_handle_points}")
+        logger.info(f"Target Points: {draw_target_points}")
+        save_pts = PIL.Image.fromarray(out_image)
+        save_dir_points = save_dir + "/points"
+        if not os.path.isdir(save_dir_points):
+            os.makedirs(save_dir_points)
+        save_pts.save(os.path.join(save_dir_points, save_prefix + "_points.png"))
+        fig_ft = draw_featuremap(ft)
+        save_dir_ft = save_dir + "/ft"
+        if not os.path.isdir(save_dir_ft):
+            os.makedirs(save_dir_ft)
+        fig_ft.savefig(
+            os.path.join(save_dir_ft, save_prefix + "_ft.png"), bbox_inches="tight"
+        )
+        plt.close(fig_ft)
+        drawable_init_code = updated_init_code.clone().cpu().detach()
+        fig_latent = draw_featuremap(drawable_init_code)
+        save_dir_lat = save_dir + "/latent"
+        if not os.path.isdir(save_dir_lat):
+            os.makedirs(save_dir_lat)
+        fig_latent.savefig(
+            os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
+        )
+        plt.close(fig_latent)
+        yield out_image
+
+
+# -------------------------------------------------------
+
+
+def run_drag_r(
+    source_image,
+    image_with_clicks,
+    mask,
+    prompt,
+    points,
+    inversion_strength,
+    lam,
+    latent_lr,
+    n_pix_step,
+    model_path,
+    vae_path,
+    lora_path,
+    start_step,
+    start_layer,
+    save_dir="./results",
+    unet_feature_idx=[3],
+    sample_interval=10,
+    interval_number = 10,
+    max_angle = 30,
+):
+    # initialize model
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    scheduler = DDIMScheduler(
+        beta_start=0.00085,
+        beta_end=0.012,
+        beta_schedule="scaled_linear",
+        clip_sample=False,
+        set_alpha_to_one=False,
+        steps_offset=1,
+    )
+    model = DragPipeline.from_pretrained(model_path, scheduler=scheduler).to(device)
+    # call this function to override unet forward function,
+    # so that intermediate features are returned after forward
+    model.modify_unet_forward()
+
+    # set vae
+    if vae_path != "default":
+        model.vae = AutoencoderKL.from_pretrained(vae_path).to(
+            model.vae.device, model.vae.dtype
+        )
+
+    # initialize parameters
+    seed = 42  # random seed used by a lot of people for unknown reason
+    seed_everything(seed)
+
+    args = SimpleNamespace()
+    args.prompt = prompt
+    args.points = points
+    args.n_inference_step = 50
+    args.n_actual_inference_step = round(inversion_strength * args.n_inference_step)
+    args.guidance_scale = 1.0
+    unet_feature_idx.sort()
+    args.unet_feature_idx = unet_feature_idx
+
+    args.r_m = 1
+    args.r_p = 3
+    args.lam = lam
+
+    args.lr = latent_lr
+    args.n_pix_step = n_pix_step
+
+    full_h, full_w = source_image.shape[:2]
+    args.sup_res_h = int(0.5 * full_h)
+    args.sup_res_w = int(0.5 * full_w)
+    args.sample_interval = sample_interval
+    args.prompt = prompt
+    # args to be added in rotation
+    # %-------------------------------------------------------%
+    args.interval_number = interval_number
+    args.max_angle = max_angle/180*pi
+    args.res_ratio = 0.5
+    args.device = device
+    
+
+    # print(args)
+    save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
+    if prompt != "":
+        save_dir = os.path.join(save_dir, prompt.replace(" ", "_"))
+    else:
+        save_dir = os.path.join(save_dir, "None")
+    save_dir = os.path.join(save_dir, save_prefix)
+
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+
+    logger = get_logger(save_dir + "/result.log")
+    logger.info(args)
+
+    source_image = preprocess_image(source_image, device)
+    args.source_image = source_image.clone().detach()
+    image_with_clicks = preprocess_image(image_with_clicks, device)
+
+    # set lora
+    if lora_path == "":
+        print("applying default parameters")
+        model.unet.set_default_attn_processor()
+    else:
+        print("applying lora: " + lora_path)
+        model.unet.load_attn_procs(lora_path)
+
+    # invert the source image
+    # the latent code resolution is too small, only 64*64
+    invert_code = model.invert(
+        source_image,
+        prompt,
+        guidance_scale=args.guidance_scale,
+        num_inference_steps=args.n_inference_step,
+        num_actual_inference_steps=args.n_actual_inference_step,
+    )
+
+    mask = torch.from_numpy(mask).float() / 255.0
+    mask[mask > 0.0] = 1.0
+    mask = rearrange(mask, "h w -> 1 1 h w").cuda()
+    mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
+
+    handle_points = []
+    target_points = []
+    # here, the point is in x,y coordinate
+    for idx, point in enumerate(points):
+        cur_point = torch.tensor(
+            [point[1] / full_h * args.sup_res_h, point[0] / full_w * args.sup_res_w]
+        )
+        cur_point = torch.round(cur_point)
+        if idx % 2 == 0:
+            handle_points.append(cur_point)
+        else:
+            target_points.append(cur_point)
+    print("handle points:", handle_points)  # y,x (h,w)
+    print("target points:", target_points)  # y,x (h,w)
+
+    init_code = invert_code
+    init_code_orig = deepcopy(init_code)
+    model.scheduler.set_timesteps(args.n_inference_step)
+    t = model.scheduler.timesteps[args.n_inference_step - args.n_actual_inference_step]
+
+    # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
+    # update according to the given supervision
+    for updated_init_code, current_points, ft in drag_diffusion_update_r(
         model, init_code, t, handle_points, target_points, mask, args
     ):
         # hijack the attention module
