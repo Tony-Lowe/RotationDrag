@@ -199,7 +199,7 @@ def drag_diffusion_update(
     yield init_code, handle_points, ret_ft
 
 
-def get_rotation(current_pt, angles):
+def get_rotated_pt(current_pt, angles):
     """
     :params current_pt: current handle points shape of [2]
     :params angles: angles to rotate, shape of [intervals]
@@ -240,13 +240,25 @@ def get_rotated_features(model, angles, args):
     return rotated_features, rotated_invert_code
 
 
+def compute_angle(tar, src, args):
+    """
+    Note that tar and src are all tensor with the shape [2].
+    Returns an angle in range [0, pi](in tensor)
+    """
+    angles = torch.atan2(
+        torch.tensor([tar[0] - args.sup_res_h * 0.5, src[0] - args.sup_res_h * 0.5]),
+        torch.tensor([tar[1] - args.sup_res_w * 0.5, src[1] - args.sup_res_w * 0.5]),
+    )
+    angle = angles[0] - angles[1]
+    return angle
+
+
 def get_each_angle(
     model,
     current,
     target_final,
     curr_ini,
     F1,
-    max_angle,
     offset_matrix,
     args,
 ):
@@ -259,11 +271,9 @@ def get_each_angle(
     :param offset_matrix: help to compute the patch around handle points
     :param args: args passed by main threads, has source_image, prompt,etc
     """
-    curr_angle = torch.atan2(current[1] - curr_ini[1], current[0] - curr_ini[0])  # [1]
-    angle_remain = torch.atan2(
-        target_final[1] - current[1], target_final[0] - current[0]
-    )  # [1]
-    angle_max = max_angle
+    curr_angle = compute_angle(current, curr_ini, args)  # [1]
+    angle_remain = compute_angle(target_final, current, args)  # [1]
+    angle_max = args.max_angle  # TODO: add them in args
     interval_number = args.interval_number  # TODO: add them in args
     intervals = torch.arange(
         0, 1 + 1 / interval_number, 1 / interval_number, device=current.device
@@ -278,7 +288,7 @@ def get_each_angle(
     ) + intervals * target_angle_max.unsqueeze(
         0
     )  # [intervals, 1]
-    candidate_points = get_rotation(current, candidate_angles)  # [intervals * 2]
+    candidate_points = get_rotated_pt(current, candidate_angles)  # [intervals * 2]
     candidate_points_repeat = candidate_points.repeat_interleave(
         offset_matrix.shape[0], dim=0
     )  # [intervals * 9, 2]
@@ -286,7 +296,7 @@ def get_each_angle(
         intervals.shape[0], 1
     )  # [intervals * 9, 2]
     candidate_points_local = candidate_points_repeat + offset_matrix_repeat
-    ft_patch_all =[]
+    ft_patch_all = []
     for idx, angle in enumerate(candidate_angles):
         ft, rotated_lat = get_rotated_features(model, angle, args)  # 1*c*h*w
         ft_patch = interpolate_feature_patch_plus(
@@ -332,7 +342,25 @@ def get_each_angle(
     # row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
     # current[0] = current[0] - args.r_p + row
     # current[1] = current[1] - args.r_p + col
-    return current, ft_patch_all[min_idx]
+    return current
+
+
+def get_current_target_r(
+    model, handle_points, target_points, handle_points_ini, F1, offset_matrix, args
+):
+    for idx in range(target_points.shape[0]):
+        if check_handle_reach_target(handle_points[idx], target_points[idx]):
+            continue
+        handle_points[idx, :] = get_each_angle(
+            model,
+            handle_points[idx, :],
+            target_points[idx, :],
+            handle_points_ini[idx, :],
+            F1,
+            offset_matrix,
+            args,
+        )
+    return handle_points
 
 
 def drag_diffusion_update_r(
@@ -368,6 +396,9 @@ def drag_diffusion_update_r(
 
     # prepare amp scaler for mixed-precision training
     scaler = torch.cuda.amp.GradScaler()
+    offset_matrix = get_offset_matrix(args.r_p, args.res_ratio).to(
+        args.device
+    )  # TODO: Check whether they are in args
     for step_idx in range(args.n_pix_step):
         with torch.autocast(device_type="cuda", dtype=torch.float16):
             unet_output, F1 = model.forward_unet_features(
@@ -382,8 +413,14 @@ def drag_diffusion_update_r(
 
             # do point tracking to update handle points before computing motion supervision loss
             if step_idx != 0:
-                handle_points = point_tracking(
-                    F0, F1, handle_points, handle_points_init, args
+                handle_points = get_current_target_r(
+                    model,
+                    handle_points,
+                    target_points,
+                    handle_points_init,
+                    F1,
+                    offset_matrix,
+                    args,
                 )
                 print("new handle points", handle_points)
 
@@ -393,21 +430,7 @@ def drag_diffusion_update_r(
                 break
 
             loss = 0.0
-            angles = get_angle(handle_points_init, handle_points)
             for i in range(len(handle_points)):
-                # %----------------------------%
-                # Adding Rotation Modification
-                with torch.no_grad():
-                    rot_img = source_image.clone().detach()
-                    rot_img = rotate(rot_img, angles[i])
-                    lat_r = model.invert(
-                        rot_img,
-                        prompt=args.prompt,
-                        guidance_scale=args.guidance_scale,
-                        num_inference_steps=args.n_inference_step,
-                        num_actual_inference_steps=args.n_actual_inference_step,
-                    )
-                # %----------------------------%
                 pi, ti = handle_points[i], target_points[i]
                 # skip if the distance between target and source is less than 1
                 if (ti - pi).norm() < 2.0:
@@ -415,15 +438,40 @@ def drag_diffusion_update_r(
 
                 di = (ti - pi) / (ti - pi).norm()
 
+                angle = compute_angle(pi + di, pi, args)
+                # %----------------------------%
+                # Adding Rotation Modification
+                with torch.no_grad():
+                    rot_img = args.source_image.clone().detach()
+                    rot_img = rotate(rot_img, angle * 180 / pi)
+                    lat_r = model.invert(
+                        rot_img,
+                        prompt=args.prompt,
+                        guidance_scale=args.guidance_scale,
+                        num_inference_steps=args.n_inference_step,
+                        num_actual_inference_steps=args.n_actual_inference_step,
+                    )
+                    F0_r = model.forward_unet_features(
+                        lat_r,
+                        t,
+                        encoder_hidden_states=text_emb,
+                        layer_idx=args.unet_feature_idx,
+                        interp_res_h=args.sup_res_h,
+                        interp_res_w=args.sup_res_w,
+                    )
+                # %----------------------------%
+
                 # motion supervision
-                f0_patch = F1[
+                rotated_pi = get_rotated_pt(pi,angle)
+                f0_patch = F0_r[
                     :,
                     :,
-                    int(pi[0]) - args.r_m : int(pi[0]) + args.r_m + 1,
-                    int(pi[1]) - args.r_m : int(pi[1]) + args.r_m + 1,
+                    int(rotated_pi[0]) - args.r_m : int(rotated_pi[0]) + args.r_m + 1,
+                    int(rotated_pi[1]) - args.r_m : int(rotated_pi[1]) + args.r_m + 1,
                 ].detach()
+                # I use rotated pts to prevent unreasonable rotation leading to comparing wrong feature
                 f1_patch = interpolate_feature_patch(
-                    F1, pi[0] + di[0], pi[1] + di[1], args.r_m
+                    F1, rotated_pi[0], rotated_pi[1], args.r_m
                 )
                 loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
 
