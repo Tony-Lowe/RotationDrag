@@ -28,11 +28,11 @@ from math import pi
 def point_tracking(F0, F1, handle_points, handle_points_init, args):
     with torch.no_grad():
         for i in range(len(handle_points)):
-            pi0, pi = handle_points_init[i], handle_points[i]
-            f0 = F0[:, :, int(pi0[0]), int(pi0[1])]
+            p_i0, p_i = handle_points_init[i], handle_points[i]
+            f0 = F0[:, :, int(p_i0[0]), int(p_i0[1])]
 
-            r1, r2 = int(pi[0]) - args.r_p, int(pi[0]) + args.r_p + 1
-            c1, c2 = int(pi[1]) - args.r_p, int(pi[1]) + args.r_p + 1
+            r1, r2 = int(p_i[0]) - args.r_p, int(p_i[0]) + args.r_p + 1
+            c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
             F1_neighbor = F1[:, :, r1:r2, c1:c2]
             all_dist = (
                 (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
@@ -40,8 +40,8 @@ def point_tracking(F0, F1, handle_points, handle_points_init, args):
             all_dist = all_dist.squeeze(dim=0)
             # WARNING: no boundary protection right now
             row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
-            handle_points[i][0] = pi[0] - args.r_p + row
-            handle_points[i][1] = pi[1] - args.r_p + col
+            handle_points[i][0] = p_i[0] - args.r_p + row
+            handle_points[i][1] = p_i[1] - args.r_p + col
         return handle_points
 
 
@@ -199,7 +199,7 @@ def drag_diffusion_update(
     yield init_code, handle_points, ret_ft
 
 
-def get_rotated_pt(current_pt, angles):
+def get_rotated_pt(current_pt, angles, args):
     """
     :params current_pt: current handle points shape of [2]
     :params angles: angles to rotate, shape of [intervals]
@@ -211,10 +211,16 @@ def get_rotated_pt(current_pt, angles):
     # angles_repeat = angles.repeat(current_pt.shape[0], 1)
     rotated_pt = torch.cat(
         (
-            current_pt_repeat[:, 0].unsqueeze(1) * torch.cos(angles)
-            - current_pt_repeat[:, 1].unsqueeze(1) * torch.sin(angles),
-            current_pt_repeat[:, 0].unsqueeze(1) * torch.sin(angles)
-            + current_pt_repeat[:, 1].unsqueeze(1) * torch.cos(angles),
+            (current_pt_repeat[:, 0].unsqueeze(1) - args.sup_res_h * 0.5)
+            * torch.cos(angles)
+            - (current_pt_repeat[:, 1].unsqueeze(1) - args.sup_res_h * 0.5)
+            * torch.sin(angles)
+            + args.sup_res_h * 0.5,
+            (current_pt_repeat[:, 0].unsqueeze(1) - args.sup_res_w * 0.5)
+            * torch.sin(angles)
+            + (current_pt_repeat[:, 1].unsqueeze(1) - args.sup_res_w * 0.5)
+            * torch.cos(angles)
+            + args.sup_res_w * 0.5,
         ),
         dim=1,
     )
@@ -295,23 +301,25 @@ def get_each_angle(
     :param args: args passed by main threads, has source_image, prompt,etc
     """
     curr_angle = compute_angle(current, curr_ini, args)
+    logger.info(f"current angle: {curr_angle}")
     angle_remain = compute_angle(target_final, current, args)
-    angle_max = args.max_angle  # TODO: add them in args
-    interval_number = args.interval_number  # TODO: add them in args
+    logger.info(f"remaining angle: {angle_remain}")
+    angle_max = args.max_angle
+    interval_number = args.interval_number
     intervals = torch.arange(
         0, 1 + 1 / interval_number, 1 / interval_number, device=current.device
     )[1:].unsqueeze(
         1
     )  # [intervals, 1]
-    target_angle_max = (
-        curr_angle + min(angle_max / (angle_remain + 1e-8), 1) * angle_remain
-    )
-    candidate_angles = (1 - intervals) * curr_angle.unsqueeze(
-        0
-    ) + intervals * target_angle_max.unsqueeze(
+    target_angle_max = min(angle_max / (angle_remain + 1e-8), 1) * angle_remain
+    candidate_angles = curr_angle.unsqueeze(0) + intervals * target_angle_max.unsqueeze(
         0
     )  # [intervals, 1]
-    candidate_points = get_rotated_pt(current, candidate_angles)  # [intervals * 2]
+    # logger.info(f"candidate_angles: {candidate_angles}")
+    candidate_points = get_rotated_pt(
+        current, candidate_angles, args
+    )  # [intervals * 2]
+    # logger.info(f"candidate_points: {candidate_points}")
     candidate_points_repeat = candidate_points.repeat_interleave(
         offset_matrix.shape[0], dim=0
     )  # [intervals * 9, 2]
@@ -335,27 +343,27 @@ def get_each_angle(
         dist_all.append(dist)
         # ft_patch_all.append(ft_patch)
         # if idx == 0:
-            # pt_ft_all = ft[
-            #     :, :, int(candidate_points[idx, 0]), int(candidate_points[idx, 1])
-            # ]  # [1,C]
-            # dif_patch = dist
-            # ft_patch_all = ft_patch
+        # pt_ft_all = ft[
+        #     :, :, int(candidate_points[idx, 0]), int(candidate_points[idx, 1])
+        # ]  # [1,C]
+        # dif_patch = dist
+        # ft_patch_all = ft_patch
         # else:
-            # pt_ft_all = torch.cat(
-            #     (
-            #         pt_ft_all,
-            #         ft[
-            #             :,
-            #             :,
-            #             int(candidate_points[idx, 0]),
-            #             int(candidate_points[idx, 1]),
-            #         ],
-            #     )
-            # )  # In the end, we get a tensor shape of [intervals,C]
-            # dif_patch = torch.cat((dif_patch, dist))  # [intervals]
-            # ft_patch_all = torch.cat(
-            #     (ft_patch_all, ft_patch)
-            # )  # In the end, we get a tensor shape of [intervals*9,C]
+        # pt_ft_all = torch.cat(
+        #     (
+        #         pt_ft_all,
+        #         ft[
+        #             :,
+        #             :,
+        #             int(candidate_points[idx, 0]),
+        #             int(candidate_points[idx, 1]),
+        #         ],
+        #     )
+        # )  # In the end, we get a tensor shape of [intervals,C]
+        # dif_patch = torch.cat((dif_patch, dist))  # [intervals]
+        # ft_patch_all = torch.cat(
+        #     (ft_patch_all, ft_patch)
+        # )  # In the end, we get a tensor shape of [intervals*9,C]
     # ft_patch_all = ft_patch_all.reshape((intervals.shape[0], -1))
     # dif_patch = abs(
     #     ft_patch_all
@@ -409,6 +417,45 @@ def get_current_target_r(
     return handle_points
 
 
+def point_tracking_r(model, t, text_emb, F1, handle_points, handle_points_init, args):
+    with torch.no_grad():
+        for idx in range(len(handle_points)):
+            p_i0, p_i = handle_points_init[idx], handle_points[idx]
+            angle0 = compute_angle(p_i, p_i0, args)
+            cpy_img = args.source_image.clone().detach()
+            angle_180 = angle0.item() * 180 / pi
+            logger.info(f"Angle in point tracking: {angle_180}")
+            rotated_img = rotate(cpy_img, angle_180)
+            lat_r = model.invert(
+                rotated_img,
+                prompt=args.prompt,
+                guidance_scale=args.guidance_scale,
+                num_inference_steps=args.n_inference_step,
+                num_actual_inference_steps=args.n_actual_inference_step,
+            )
+            p_i0_r = get_rotated_pt(p_i0, angle0, args).squeeze()
+            unet_output, F0 = model.forward_unet_features(
+                lat_r,
+                t,
+                encoder_hidden_states=text_emb,
+                layer_idx=args.unet_feature_idx,
+                interp_res_h=args.sup_res_h,
+                interp_res_w=args.sup_res_w,
+            )
+            f0 = F0[:,:,int(p_i0_r[0]),int(p_i0_r[1])]
+            r1, r2 = int(p_i[0]) - args.r_p, int(p_i[0]) + args.r_p + 1
+            c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
+            F1_neighbor = F1[:, :, r1:r2, c1:c2]
+            all_dist = (
+                (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
+            )
+            # WARNING: no boundary protection right now
+            row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
+            handle_points[idx][0] = p_i[0] - args.r_p + row
+            handle_points[idx][1] = p_i[1] - args.r_p + col
+        return handle_points
+
+
 def drag_diffusion_update_r(
     model, init_code, t, handle_points, target_points, mask, args
 ):
@@ -459,18 +506,19 @@ def drag_diffusion_update_r(
 
             # do point tracking to update handle points before computing motion supervision loss
             if step_idx != 0:
-                handle_points = get_current_target_r(
-                    model,
-                    t,
-                    text_emb,
-                    handle_points,
-                    target_points,
-                    handle_points_init,
-                    F1,
-                    offset_matrix,
-                    args,
-                )
-                print("new handle points", handle_points)
+                # handle_points = get_current_target_r(
+                #     model,
+                #     t,
+                #     text_emb,
+                #     handle_points,
+                #     target_points,
+                #     handle_points_init,
+                #     F1,
+                #     offset_matrix,
+                #     args,
+                # )
+                handle_points = point_tracking_r(model,t,text_emb,F1,handle_points,handle_points_init,args)
+                logger.info(f"new handle points: {handle_points}")
 
             # break if all handle points have reached the targets
             if check_handle_reach_target(handle_points, target_points):
@@ -512,7 +560,7 @@ def drag_diffusion_update_r(
                 # %----------------------------%
 
                 # motion supervision
-                rotated_p_i = get_rotated_pt(p_i, angle).squeeze()
+                rotated_p_i = get_rotated_pt(p_i, angle, args).squeeze()
                 f0_patch = F0r[
                     :,
                     :,
@@ -531,7 +579,7 @@ def drag_diffusion_update_r(
                 * ((x_prev_updated - x_prev_0) * (1.0 - interp_mask)).abs().sum()
             )
             # loss += args.lam * ((init_code_orig-init_code)*(1.0-interp_mask)).abs().sum()
-            print("loss total=%f" % (loss.item()))
+            logger.info("loss total=%f" % (loss.item()))
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -539,6 +587,7 @@ def drag_diffusion_update_r(
         optimizer.zero_grad()
         ret_ft = F1.clone().cpu().detach()
         if step_idx % args.sample_interval == 0:
+            logger.info("Sampling Interval reached")
             yield init_code, handle_points, ret_ft
     yield init_code, handle_points, ret_ft
 
