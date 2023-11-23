@@ -162,22 +162,22 @@ def drag_diffusion_update(
 
             loss = 0.0
             for i in range(len(handle_points)):
-                pi, ti = handle_points[i], target_points[i]
+                p_i, ti = handle_points[i], target_points[i]
                 # skip if the distance between target and source is less than 1
-                if (ti - pi).norm() < 2.0:
+                if (ti - p_i).norm() < 2.0:
                     continue
 
-                di = (ti - pi) / (ti - pi).norm()
+                di = (ti - p_i) / (ti - p_i).norm()
 
                 # motion supervision
                 f0_patch = F1[
                     :,
                     :,
-                    int(pi[0]) - args.r_m : int(pi[0]) + args.r_m + 1,
-                    int(pi[1]) - args.r_m : int(pi[1]) + args.r_m + 1,
+                    int(p_i[0]) - args.r_m : int(p_i[0]) + args.r_m + 1,
+                    int(p_i[1]) - args.r_m : int(p_i[1]) + args.r_m + 1,
                 ].detach()
                 f1_patch = interpolate_feature_patch(
-                    F1, pi[0] + di[0], pi[1] + di[1], args.r_m
+                    F1, p_i[0] + di[0], p_i[1] + di[1], args.r_m
                 )
                 loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
 
@@ -537,39 +537,39 @@ def drag_diffusion_update_r(
                 angle = compute_angle(p_i + d_i, p_i, args)
                 # %----------------------------%
                 # Adding Rotation Modification
-                with torch.no_grad():
-                    rot_img = args.source_image.clone().detach()
-                    angle_180 = angle.item() * 180 / pi
-                    logger.info(f"Angle in optimization: {angle_180}")
-                    rot_img = rotate(rot_img, angle_180)
-                    lat_r = model.invert(
-                        rot_img,
-                        prompt=args.prompt,
-                        guidance_scale=args.guidance_scale,
-                        num_inference_steps=args.n_inference_step,
-                        num_actual_inference_steps=args.n_actual_inference_step,
-                    )
-                    unet_output_r, F0r = model.forward_unet_features(
-                        lat_r,
-                        t,
-                        encoder_hidden_states=text_emb,
-                        layer_idx=args.unet_feature_idx,
-                        interp_res_h=args.sup_res_h,
-                        interp_res_w=args.sup_res_w,
-                    )
-                # %----------------------------%
+                # with torch.no_grad():
+                #     rot_img = args.source_image.clone().detach()
+                #     angle_180 = angle.item() * 180 / pi
+                #     logger.info(f"Angle in optimization: {angle_180}")
+                #     rot_img = rotate(rot_img, angle_180)
+                #     lat_r = model.invert(
+                #         rot_img,
+                #         prompt=args.prompt,
+                #         guidance_scale=args.guidance_scale,
+                #         num_inference_steps=args.n_inference_step,
+                #         num_actual_inference_steps=args.n_actual_inference_step,
+                #     )
+                #     unet_output_r, F0r = model.forward_unet_features(
+                #         lat_r,
+                #         t,
+                #         encoder_hidden_states=text_emb,
+                #         layer_idx=args.unet_feature_idx,
+                #         interp_res_h=args.sup_res_h,
+                #         interp_res_w=args.sup_res_w,
+                #     )
+                # # %----------------------------%
 
                 # motion supervision
-                rotated_p_i = get_rotated_pt(p_i, angle, args).squeeze()
-                f0_patch = F0r[
+                # rotated_p_i = get_rotated_pt(p_i, angle, args).squeeze()
+                f0_patch = F1[
                     :,
                     :,
-                    int(rotated_p_i[0]) - args.r_m : int(rotated_p_i[0]) + args.r_m + 1,
-                    int(rotated_p_i[1]) - args.r_m : int(rotated_p_i[1]) + args.r_m + 1,
+                    int(p_i[0]) - args.r_m : int(p_i[0]) + args.r_m + 1,
+                    int(p_i[1]) - args.r_m : int(p_i[1]) + args.r_m + 1,
                 ].detach()
                 # I use rotated pts to prevent unreasonable rotation leading to comparing wrong feature
                 f1_patch = interpolate_feature_patch(
-                    F1, rotated_p_i[0], rotated_p_i[1], args.r_m
+                    F1, p_i[0]+d_i[0], p_i[1]+d_i[1], args.r_m
                 )
                 loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
 
@@ -1008,22 +1008,22 @@ def drag_diffusion_update_gen(
 
             loss = 0.0
             for i in range(len(handle_points)):
-                pi, ti = handle_points[i], target_points[i]
+                p_i, ti = handle_points[i], target_points[i]
                 # skip if the distance between target and source is less than 1
-                if (ti - pi).norm() < 2.0:
+                if (ti - p_i).norm() < 2.0:
                     continue
 
-                di = (ti - pi) / (ti - pi).norm()
+                di = (ti - p_i) / (ti - p_i).norm()
 
                 # motion supervision
                 f0_patch = F1[
                     :,
                     :,
-                    int(pi[0]) - args.r_m : int(pi[0]) + args.r_m + 1,
-                    int(pi[1]) - args.r_m : int(pi[1]) + args.r_m + 1,
+                    int(p_i[0]) - args.r_m : int(p_i[0]) + args.r_m + 1,
+                    int(p_i[1]) - args.r_m : int(p_i[1]) + args.r_m + 1,
                 ].detach()
                 f1_patch = interpolate_feature_patch(
-                    F1, pi[0] + di[0], pi[1] + di[1], args.r_m
+                    F1, p_i[0] + di[0], p_i[1] + di[1], args.r_m
                 )
                 loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
 

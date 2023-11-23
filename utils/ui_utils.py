@@ -521,8 +521,6 @@ def run_drag_r(
     save_dir="./results",
     unet_feature_idx=[3],
     sample_interval=10,
-    interval_number = 10,
-    max_angle = 30,
 ):
     # initialize model
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -572,8 +570,6 @@ def run_drag_r(
     args.prompt = prompt
     # args to be added in rotation
     # %-------------------------------------------------------%
-    args.interval_number = interval_number
-    args.max_angle = max_angle/180*pi
     args.res_ratio = 0.5
     args.device = device
     

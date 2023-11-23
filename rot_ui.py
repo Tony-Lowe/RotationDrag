@@ -62,7 +62,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp/rotation", label="LoRA path")
-            save_dir = gr.Textbox(value="./results/dragdiffusion_r", label="Save path")
+            save_dir = gr.Textbox(value="./results/point_tracking", label="Save path")
             sample_interval = gr.Number(
                 label="Sampling Interval", value=10, visible=True
             )
@@ -98,19 +98,19 @@ with gr.Blocks() as demo:
                     value=10, label="start_layer", precision=0, visible=False
                 )
 
-        with gr.Tab("Rotation Config"):
-            with gr.Row():
-                max_angle = gr.Number(
-                    value=30,
-                    label="Maximun angle per step",
-                    precision=0,
-                )
-                interval_num = gr.Number(
-                    value=10,
-                    label="Interval",
-                    info="Decide the density of intervals in a maximun step",
-                    precision=0,
-                )
+        # with gr.Tab("Rotation Config"):
+        #     with gr.Row():
+        #         max_angle = gr.Number(
+        #             value=30,
+        #             label="Maximun angle per step",
+        #             precision=0,
+        #         )
+        #         interval_num = gr.Number(
+        #             value=10,
+        #             label="Interval",
+        #             info="Decide the density of intervals in a maximun step",
+        #             precision=0,
+        #         )
 
         with gr.Tab("Base Model Config"):
             with gr.Row():
@@ -199,8 +199,6 @@ with gr.Blocks() as demo:
             save_dir,
             ft_layer_idx,
             sample_interval,
-            interval_num,
-            max_angle,
         ],
         [output_image],
     )
