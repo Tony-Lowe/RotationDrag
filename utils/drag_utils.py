@@ -534,7 +534,7 @@ def drag_diffusion_update_r(
 
                 d_i = (t_i - p_i) / (t_i - p_i).norm()
 
-                angle = compute_angle(p_i + d_i, p_i, args)
+                # angle = compute_angle(p_i + d_i, p_i, args)
                 # %----------------------------%
                 # Adding Rotation Modification
                 # with torch.no_grad():
