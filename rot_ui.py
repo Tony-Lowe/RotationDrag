@@ -2,7 +2,14 @@ import os
 import gradio as gr
 
 from utils.ui_utils import get_points, undo_points
-from utils.ui_utils import clear_all, store_img, train_lora_interface, run_drag_r,locate_pt
+from utils.ui_utils import (
+    clear_all,
+    store_img,
+    train_lora_interface,
+    run_drag_r,
+    locate_pt,
+    mask_from_pic,
+)
 
 LENGTH = 480  # length of the square area displaying/editing images
 
@@ -68,9 +75,16 @@ with gr.Blocks() as demo:
             sample_interval = gr.Number(
                 label="Sampling Interval", value=20, visible=True
             )
-            x_location = gr.Number(label="x location", value=0, precision=0, visible=True)
-            y_location = gr.Number(label="y location", value=0, precision=0, visible=True)
+            x_location = gr.Number(
+                label="x location", value=0, precision=0, visible=True
+            )
+            y_location = gr.Number(
+                label="y location", value=0, precision=0, visible=True
+            )
             set_point = gr.Button("Set Point", visible=True)
+            upload_button = gr.UploadButton(
+                "Click to upload Mask", file_types=["image"]
+            )
 
         # algorithm specific parameters
         with gr.Tab("Drag Config"):
@@ -168,7 +182,16 @@ with gr.Blocks() as demo:
     undo_button.click(
         undo_points, [original_image, mask], [input_image, selected_points]
     )
-    set_point.click(locate_pt, [x_location, y_location,input_image,selected_points], [input_image, selected_points])
+    upload_button.upload(
+        mask_from_pic,
+        [upload_button, canvas],
+        [original_image, selected_points, input_image, mask],
+    )
+    set_point.click(
+        locate_pt,
+        [x_location, y_location, input_image, selected_points],
+        [input_image, selected_points],
+    )
     train_lora_button.click(
         train_lora_interface,
         [

@@ -128,6 +128,28 @@ def store_img(img, length=512):
     return image, [], masked_img, mask
 
 
+def mask_from_pic(mask_path, img, length=512):
+    image = img["image"]
+    height, width, _ = image.shape
+    image = Image.fromarray(image)
+    image = exif_transpose(image)
+    image = image.resize((length, int(length * height / width)), PIL.Image.BILINEAR)
+    image = np.array(image)
+
+    mask_pic = cv2.imread(mask_path.name)
+    mask = np.float32(mask_pic[:, :, 0]) / 255.0
+    mask = cv2.resize(
+        mask, (length, int(length * height / width)), interpolation=cv2.INTER_NEAREST
+    )
+    if mask.sum() > 0:
+        mask = np.uint8(mask > 0)
+        masked_img = mask_image(image, 1 - mask, color=[0, 0, 0], alpha=0.3)
+    else:
+        masked_img = image.copy()
+    # when new image is uploaded, `selected_points` should be empty
+    return image, [], masked_img, mask
+
+
 # once user upload an image, the original image is stored in `original_image`
 # the same image is displayed in `input_image` for point clicking purpose
 def store_img_gen(img):
@@ -631,7 +653,11 @@ def run_drag_r(
         num_inference_steps=args.n_inference_step,
         num_actual_inference_steps=args.n_actual_inference_step,
     )
-
+    save_mask = mask*255
+    if mask.sum() == 0:
+        save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
+    saved_mask = Image.fromarray(save_mask, mode="L")
+    saved_mask.save(os.path.join(save_dir, "mask.png"))
     mask = torch.from_numpy(mask).float() / 255.0
     mask[mask > 0.0] = 1.0
     mask = rearrange(mask, "h w -> 1 1 h w").cuda()
@@ -755,15 +781,15 @@ def run_drag_r(
             os.path.join(save_dir_ft, save_prefix + "_ft.png"), bbox_inches="tight"
         )
         plt.close(fig_ft)
-        drawable_init_code = updated_init_code.clone().cpu().detach()
-        fig_latent = draw_featuremap(drawable_init_code)
-        save_dir_lat = save_dir + "/latent"
-        if not os.path.isdir(save_dir_lat):
-            os.makedirs(save_dir_lat)
-        fig_latent.savefig(
-            os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
-        )
-        plt.close(fig_latent)
+        # drawable_init_code = updated_init_code.clone().cpu().detach()
+        # fig_latent = draw_featuremap(drawable_init_code)
+        # save_dir_lat = save_dir + "/latent"
+        # if not os.path.isdir(save_dir_lat):
+        #     os.makedirs(save_dir_lat)
+        # fig_latent.savefig(
+        #     os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
+        # )
+        # plt.close(fig_latent)
         yield out_image
 
 
