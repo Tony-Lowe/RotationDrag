@@ -171,6 +171,7 @@ def get_points(img, sel_pix, evt: gr.SelectData):
     # draw points
     points = []
     for idx, point in enumerate(sel_pix):
+        # print(point)
         if idx % 2 == 0:
             # draw a red circle at the handle point
             cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
@@ -185,6 +186,28 @@ def get_points(img, sel_pix, evt: gr.SelectData):
             )
             points = []
     return img if isinstance(img, np.ndarray) else np.array(img)
+
+
+# locate point by coordinate
+def locate_pt(x, y, img, sel_pix):
+    sel_pix.append([x, y])
+    points = []
+    for idx, point in enumerate(sel_pix):
+        # print(point)
+        if idx % 2 == 0:
+            # draw a red circle at the handle point
+            cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
+        else:
+            # draw a blue circle at the handle point
+            cv2.circle(img, tuple(point), 10, (0, 0, 255), -1)
+        points.append(tuple(point))
+        # draw an arrow from handle point to target point
+        if len(points) == 2:
+            cv2.arrowedLine(
+                img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5
+            )
+            points = []
+    return img if isinstance(img, np.ndarray) else np.array(img), sel_pix
 
 
 # clear all handle/target points
@@ -572,7 +595,6 @@ def run_drag_r(
     # %-------------------------------------------------------%
     args.res_ratio = 0.5
     args.device = device
-    
 
     # print(args)
     save_prefix = datetime.datetime.now().strftime("%Y-%m-%d-%H%M-%S")
@@ -997,15 +1019,15 @@ def run_freedrag(
             os.path.join(save_dir_ft, save_prefix + "_ft.png"), bbox_inches="tight"
         )
         plt.close(fig_ft)
-        drawable_init_code = updated_init_code.clone().cpu().detach()
-        fig_latent = draw_featuremap(drawable_init_code)
-        save_dir_lat = save_dir + "/latent"
-        if not os.path.isdir(save_dir_lat):
-            os.makedirs(save_dir_lat)
-        fig_latent.savefig(
-            os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
-        )
-        plt.close(fig_latent)
+        # drawable_init_code = updated_init_code.clone().cpu().detach()
+        # fig_latent = draw_featuremap(drawable_init_code)
+        # save_dir_lat = save_dir + "/latent"
+        # if not os.path.isdir(save_dir_lat):
+        #     os.makedirs(save_dir_lat)
+        # fig_latent.savefig(
+        #     os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
+        # )
+        # plt.close(fig_latent)
         yield out_image, gr.Button.update(interactive=True)
         if stop_flag:
             break

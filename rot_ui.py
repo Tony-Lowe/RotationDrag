@@ -2,7 +2,7 @@ import os
 import gradio as gr
 
 from utils.ui_utils import get_points, undo_points
-from utils.ui_utils import clear_all, store_img, train_lora_interface, run_drag_r
+from utils.ui_utils import clear_all, store_img, train_lora_interface, run_drag_r,locate_pt
 
 LENGTH = 480  # length of the square area displaying/editing images
 
@@ -63,16 +63,20 @@ with gr.Blocks() as demo:
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp/rotation", label="LoRA path")
             save_dir = gr.Textbox(value="./results/point_tracking", label="Save path")
-            sample_interval = gr.Number(
-                label="Sampling Interval", value=10, visible=True
-            )
             lora_status_bar = gr.Textbox(label="display LoRA training status")
+        with gr.Row():
+            sample_interval = gr.Number(
+                label="Sampling Interval", value=20, visible=True
+            )
+            x_location = gr.Number(label="x location", value=0, precision=0, visible=True)
+            y_location = gr.Number(label="y location", value=0, precision=0, visible=True)
+            set_point = gr.Button("Set Point", visible=True)
 
         # algorithm specific parameters
         with gr.Tab("Drag Config"):
             with gr.Row():
                 n_pix_step = gr.Number(
-                    value=40,
+                    value=80,
                     label="number of pixel steps",
                     info="Number of gradient descent (motion supervision) steps on latent.",
                     precision=0,
@@ -164,6 +168,7 @@ with gr.Blocks() as demo:
     undo_button.click(
         undo_points, [original_image, mask], [input_image, selected_points]
     )
+    set_point.click(locate_pt, [x_location, y_location,input_image,selected_points], [input_image, selected_points])
     train_lora_button.click(
         train_lora_interface,
         [

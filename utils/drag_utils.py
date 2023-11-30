@@ -417,39 +417,55 @@ def get_current_target_r(
     return handle_points
 
 
-def point_tracking_r(model, t, text_emb, F1, handle_points, handle_points_init, args):
+def point_tracking_r(
+    model, t, text_emb, F0, F1, handle_points, handle_points_init, args
+):
     with torch.no_grad():
         for idx in range(len(handle_points)):
             p_i0, p_i = handle_points_init[idx], handle_points[idx]
             angle0 = compute_angle(p_i, p_i0, args)
-            cpy_img = args.source_image.clone().detach()
             angle_180 = angle0.item() * 180 / pi
             logger.info(f"Angle in point tracking: {angle_180}")
-            rotated_img = rotate(cpy_img, angle_180)
-            lat_r = model.invert(
-                rotated_img,
-                prompt=args.prompt,
-                guidance_scale=args.guidance_scale,
-                num_inference_steps=args.n_inference_step,
-                num_actual_inference_steps=args.n_actual_inference_step,
-            )
-            p_i0_r = get_rotated_pt(p_i0, angle0, args).squeeze()
-            unet_output, F0 = model.forward_unet_features(
-                lat_r,
-                t,
-                encoder_hidden_states=text_emb,
-                layer_idx=args.unet_feature_idx,
-                interp_res_h=args.sup_res_h,
-                interp_res_w=args.sup_res_w,
-            )
-            f0 = F0[:,:,int(p_i0_r[0]),int(p_i0_r[1])]
-            r1, r2 = int(p_i[0]) - args.r_p, int(p_i[0]) + args.r_p + 1
-            c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
-            F1_neighbor = F1[:, :, r1:r2, c1:c2]
-            all_dist = (
-                (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
-            )
-            # WARNING: no boundary protection right now
+            if angle_180 > 5 or angle_180 < -5:
+                cpy_img = args.source_image.clone().detach()
+                rotated_img = rotate(cpy_img, angle_180)
+                lat_r = model.invert(
+                    rotated_img,
+                    prompt=args.prompt,
+                    guidance_scale=args.guidance_scale,
+                    num_inference_steps=args.n_inference_step,
+                    num_actual_inference_steps=args.n_actual_inference_step,
+                )
+                p_i0_r = get_rotated_pt(p_i0, angle0, args).squeeze()
+                unet_output, F0r = model.forward_unet_features(
+                    lat_r,
+                    t,
+                    encoder_hidden_states=text_emb,
+                    layer_idx=args.unet_feature_idx,
+                    interp_res_h=args.sup_res_h,
+                    interp_res_w=args.sup_res_w,
+                )
+                f0r = F0r[:, :, int(p_i0_r[0]), int(p_i0_r[1])]
+                r1, r2 = int(p_i[0]) - args.r_p, int(p_i[0]) + args.r_p + 1
+                c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
+                F1_neighbor = F1[:, :, r1:r2, c1:c2]
+                all_dist = (
+                    (f0r.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor)
+                    .abs()
+                    .sum(dim=1)
+                )
+                all_dist = all_dist.squeeze(dim=0)
+                # WARNING: no boundary protection right now
+            else:
+                f0 = F0[:, :, int(p_i0[0]), int(p_i0[1])]
+                r1, r2 = int(p_i[0]) - args.r_p, int(p_i[0]) + args.r_p + 1
+                c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
+                F1_neighbor = F1[:, :, r1:r2, c1:c2]
+                all_dist = (
+                    (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
+                )
+                all_dist = all_dist.squeeze(dim=0)
+                # WARNING: no boundary protection right now
             row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
             handle_points[idx][0] = p_i[0] - args.r_p + row
             handle_points[idx][1] = p_i[1] - args.r_p + col
@@ -517,7 +533,9 @@ def drag_diffusion_update_r(
                 #     offset_matrix,
                 #     args,
                 # )
-                handle_points = point_tracking_r(model,t,text_emb,F1,handle_points,handle_points_init,args)
+                handle_points = point_tracking_r(
+                    model, t, text_emb,F0, F1, handle_points, handle_points_init, args
+                )
                 logger.info(f"new handle points: {handle_points}")
 
             # break if all handle points have reached the targets
@@ -569,7 +587,7 @@ def drag_diffusion_update_r(
                 ].detach()
                 # I use rotated pts to prevent unreasonable rotation leading to comparing wrong feature
                 f1_patch = interpolate_feature_patch(
-                    F1, p_i[0]+d_i[0], p_i[1]+d_i[1], args.r_m
+                    F1, p_i[0] + d_i[0], p_i[1] + d_i[1], args.r_m
                 )
                 loss += ((2 * args.r_m + 1) ** 2) * F.l1_loss(f0_patch, f1_patch)
 
