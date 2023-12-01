@@ -23,6 +23,10 @@ import numpy as np
 from loguru import logger
 from torchvision.transforms.functional import rotate
 from math import pi
+import cv2
+from skimage.draw import line
+
+W = torch.tensor([[0, -1], [1, 0]])
 
 
 def point_tracking(F0, F1, handle_points, handle_points_init, args):
@@ -267,166 +271,30 @@ def get_rotated_features(model, angles, t, text_emb, args):
     return rotated_features, rotated_invert_code
 
 
-def compute_angle(tar, src, args):
+def compute_angle(tar, src, ax, args):
     """
     Note that tar and src are all tensor with the shape [2].
     Returns an angle in range [0, pi]
     """
     angles = torch.atan2(
-        torch.tensor([tar[0] - args.sup_res_h * 0.5, src[0] - args.sup_res_h * 0.5]),
-        torch.tensor([tar[1] - args.sup_res_w * 0.5, src[1] - args.sup_res_w * 0.5]),
+        torch.tensor([tar[0] - ax[0], src[0] - ax[0]]),
+        torch.tensor([tar[1] - ax[1], src[1] - ax[1]]),
     )
     angle = torch.tensor([angles[0] - angles[1]])
     return angle
 
 
-def get_each_angle(
-    model,
-    t,
-    text_emb,
-    current,
-    target_final,
-    curr_ini,
-    F1,
-    offset_matrix,
-    args,
-):
-    """
-    :param current: tensor shape of 2, current handle points
-    :param target_final: tensor same shape with current, final taget points
-    :param curr_ini: Initial source point
-    :param F1: Updated Feature
-    :param max_angle: maximum angle of rotation [0, pi]
-    :param offset_matrix: help to compute the patch around handle points
-    :param args: args passed by main threads, has source_image, prompt,etc
-    """
-    curr_angle = compute_angle(current, curr_ini, args)
-    logger.info(f"current angle: {curr_angle}")
-    angle_remain = compute_angle(target_final, current, args)
-    logger.info(f"remaining angle: {angle_remain}")
-    angle_max = args.max_angle
-    interval_number = args.interval_number
-    intervals = torch.arange(
-        0, 1 + 1 / interval_number, 1 / interval_number, device=current.device
-    )[1:].unsqueeze(
-        1
-    )  # [intervals, 1]
-    target_angle_max = min(angle_max / (angle_remain + 1e-8), 1) * angle_remain
-    candidate_angles = curr_angle.unsqueeze(0) + intervals * target_angle_max.unsqueeze(
-        0
-    )  # [intervals, 1]
-    # logger.info(f"candidate_angles: {candidate_angles}")
-    candidate_points = get_rotated_pt(
-        current, candidate_angles, args
-    )  # [intervals * 2]
-    # logger.info(f"candidate_points: {candidate_points}")
-    candidate_points_repeat = candidate_points.repeat_interleave(
-        offset_matrix.shape[0], dim=0
-    )  # [intervals * 9, 2]
-    offset_matrix_repeat = offset_matrix.repeat(
-        intervals.shape[0], 1
-    )  # [intervals * 9, 2]
-    candidate_points_local = candidate_points_repeat + offset_matrix_repeat
-    # ft_patch_all = []
-    dist_all = []
-    for idx, angle in enumerate(candidate_angles):
-        ft, rotated_lat = get_rotated_features(
-            model, angle, t, text_emb, args
-        )  # 1*c*h*w
-        ft_patch = interpolate_feature_patch_plus(
-            ft, candidate_points_local[idx * 9 : (idx + 1) * 9, :]
-        )  # [9,C]
-        f1_patch = interpolate_feature_patch_plus(
-            F1, candidate_points_local[idx * 9 : (idx + 1) * 9, :]
-        )  # [9]
-        dist = abs(ft_patch - f1_patch).mean()  # []
-        dist_all.append(dist)
-        # ft_patch_all.append(ft_patch)
-        # if idx == 0:
-        # pt_ft_all = ft[
-        #     :, :, int(candidate_points[idx, 0]), int(candidate_points[idx, 1])
-        # ]  # [1,C]
-        # dif_patch = dist
-        # ft_patch_all = ft_patch
-        # else:
-        # pt_ft_all = torch.cat(
-        #     (
-        #         pt_ft_all,
-        #         ft[
-        #             :,
-        #             :,
-        #             int(candidate_points[idx, 0]),
-        #             int(candidate_points[idx, 1]),
-        #         ],
-        #     )
-        # )  # In the end, we get a tensor shape of [intervals,C]
-        # dif_patch = torch.cat((dif_patch, dist))  # [intervals]
-        # ft_patch_all = torch.cat(
-        #     (ft_patch_all, ft_patch)
-        # )  # In the end, we get a tensor shape of [intervals*9,C]
-    # ft_patch_all = ft_patch_all.reshape((intervals.shape[0], -1))
-    # dif_patch = abs(
-    #     ft_patch_all
-    #     - interpolate_feature_patch_plus(F1, current + offset_matrix)
-    #     .flatten(0)
-    #     .unsqueeze(0)
-    # ).mean(
-    #     1
-    # )  # intervals*[distance in feature space]
-
-    # point tracking
-    dif_patch = torch.tensor(dist_all)
-    min_idx = torch.argmin(dif_patch)
-    # f0 = ft_patch_all[min_idx, :]
-    # y1, y2 = int(current[0]) - args.r_p, int(current[0]) + args.r_p
-    # x1, x2 = int(current[1]) - args.r_p, int(current[1]) + args.r_p
-    # F1_neighbor = F1[:, :, y1:y2, x1:x2]
-    # all_dist = (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
-    # all_dist = all_dist.squeeze(dim=0)
-    # row, col = divmod(all_dist.argmin().item(), all_dist.shape[-1])
-    # current[0] = current[0] - args.r_p + row
-    # current[1] = current[1] - args.r_p + col
-    return candidate_points[min_idx]
-
-
-def get_current_target_r(
-    model,
-    t,
-    text_emb,
-    handle_points,
-    target_points,
-    handle_points_ini,
-    F1,
-    offset_matrix,
-    args,
-):
-    for idx in range(len(target_points)):
-        if check_handle_reach_target(handle_points[idx], target_points[idx]):
-            continue
-        handle_points[idx] = get_each_angle(
-            model,
-            t,
-            text_emb,
-            handle_points[idx],
-            target_points[idx],
-            handle_points_ini[idx],
-            F1,
-            offset_matrix,
-            args,
-        )
-    return handle_points
-
-
 def point_tracking_r(
-    model, t, text_emb, F0, F1, handle_points, handle_points_init, args
+    model, t, text_emb, F0, F1, handle_points, handle_points_init, axis, args
 ):
     with torch.no_grad():
         for idx in range(len(handle_points)):
             p_i0, p_i = handle_points_init[idx], handle_points[idx]
-            angle0 = compute_angle(p_i, p_i0, args)
+            a_i = axis[idx]
+            angle0 = compute_angle(p_i, p_i0, a_i, args)
             angle_180 = angle0.item() * 180 / pi
             logger.info(f"Angle in point tracking: {angle_180}")
-            if angle_180 > 5 or angle_180 < -5:
+            if angle_180 > -355 or angle_180 < -5:
                 cpy_img = args.source_image.clone().detach()
                 rotated_img = rotate(cpy_img, angle_180)
                 lat_r = model.invert(
@@ -462,7 +330,9 @@ def point_tracking_r(
                 c1, c2 = int(p_i[1]) - args.r_p, int(p_i[1]) + args.r_p + 1
                 F1_neighbor = F1[:, :, r1:r2, c1:c2]
                 all_dist = (
-                    (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor).abs().sum(dim=1)
+                    (f0.unsqueeze(dim=-1).unsqueeze(dim=-1) - F1_neighbor)
+                    .abs()
+                    .sum(dim=1)
                 )
                 all_dist = all_dist.squeeze(dim=0)
                 # WARNING: no boundary protection right now
@@ -472,8 +342,44 @@ def point_tracking_r(
         return handle_points
 
 
+def get_rot_axis(handle_points, target_points, mask, args):
+    """
+    :params handle_points: handle points shape of [N,2] y,x
+    :params target_points: target points shape of [N,2] y,x
+    :params mask: mask shape of [1,1,H,W]
+    :returns: rotation axis shape of [N,2] y,x
+    """
+    m = mask.squeeze().numpy()
+    conts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    x, y, w, h = cv2.boundingRect(conts[0])
+    # W = torch.tensor([[0, -1], [1, 0]])
+    rot_ax = []
+    for idx in range(len(handle_points)):
+        hi = handle_points[idx]
+        ti = target_points[idx]
+        di = (ti - hi) / (ti - hi).norm()
+        di = di @ W
+        if di[1] != 0:
+            K = di[0] / di[1]
+            b = hi[0] - K * hi[1]
+            pa, pb = (x, int(K * x + b)), (x + w, int(K * (x + w) + b))
+        else:
+            K = 0
+            b = hi[1]
+            pa, pb = (int(b), y), (int(b), y + h)
+        axis = []
+        for pt in zip(*line(*pa, *pb)):  # pt is x,y
+            if cv2.pointPolygonTest(conts[0], pt, False) == 1:
+                axis = torch.tensor([pt[1], pt[0]])  # (y,x)
+        axis = torch.stack(axis)
+        dist = (axis - hi).float().norm(dim=1)
+        rot_ax.append(axis[dist.argmax(), :])
+    rot_ax = torch.stack(rot_ax)
+    return rot_ax
+
+
 def drag_diffusion_update_r(
-    model, init_code, t, handle_points, target_points, mask, args
+    model, init_code, t, handle_points, target_points, axis, mask, args
 ):
     assert len(handle_points) == len(
         target_points
@@ -522,19 +428,16 @@ def drag_diffusion_update_r(
 
             # do point tracking to update handle points before computing motion supervision loss
             if step_idx != 0:
-                # handle_points = get_current_target_r(
-                #     model,
-                #     t,
-                #     text_emb,
-                #     handle_points,
-                #     target_points,
-                #     handle_points_init,
-                #     F1,
-                #     offset_matrix,
-                #     args,
-                # )
                 handle_points = point_tracking_r(
-                    model, t, text_emb,F0, F1, handle_points, handle_points_init, args
+                    model,
+                    t,
+                    text_emb,
+                    F0,
+                    F1,
+                    handle_points,
+                    handle_points_init,
+                    axis,
+                    args,
                 )
                 logger.info(f"new handle points: {handle_points}")
 
@@ -545,40 +448,26 @@ def drag_diffusion_update_r(
 
             loss = 0.0
             for i in range(len(handle_points)):
-                p_i, t_i = handle_points[i], target_points[i]
+                p_i, t_i, a_i = handle_points[i], target_points[i], axis[i]
                 # skip if the distance between target and source is less than 1
-                if (t_i - p_i).norm() < 2.0:
+                if (t_i - p_i).norm() < 2.0 or (t_i - a_i) / (t_i - a_i).norm() == (
+                    p_i - a_i
+                ) / (p_i - a_i).norm():
                     continue
 
-                d_i = (t_i - p_i) / (t_i - p_i).norm()
+                # d_i = (t_i - p_i) / (t_i - p_i).norm()
+                ver_i = ((p_i - a_i) / (p_i - a_i).norm()) @ W
+                if ver_i[1] != 0:
+                    k = ver_i[0] / ver_i[1]
+                    b = ver_i[0] - k * ver_i[1]
+                    r_t_i = torch.tensor([k * t_i[1] + b, t_i[1]])
+                else:
+                    k = 0
+                    b = ver_i[1]
+                    r_t_i = torch.tensor([t_i[0], b])
+                    
+                d_i = (r_t_i - p_i) / (r_t_i - p_i).norm()
 
-                # angle = compute_angle(p_i + d_i, p_i, args)
-                # %----------------------------%
-                # Adding Rotation Modification
-                # with torch.no_grad():
-                #     rot_img = args.source_image.clone().detach()
-                #     angle_180 = angle.item() * 180 / pi
-                #     logger.info(f"Angle in optimization: {angle_180}")
-                #     rot_img = rotate(rot_img, angle_180)
-                #     lat_r = model.invert(
-                #         rot_img,
-                #         prompt=args.prompt,
-                #         guidance_scale=args.guidance_scale,
-                #         num_inference_steps=args.n_inference_step,
-                #         num_actual_inference_steps=args.n_actual_inference_step,
-                #     )
-                #     unet_output_r, F0r = model.forward_unet_features(
-                #         lat_r,
-                #         t,
-                #         encoder_hidden_states=text_emb,
-                #         layer_idx=args.unet_feature_idx,
-                #         interp_res_h=args.sup_res_h,
-                #         interp_res_w=args.sup_res_w,
-                #     )
-                # # %----------------------------%
-
-                # motion supervision
-                # rotated_p_i = get_rotated_pt(p_i, angle, args).squeeze()
                 f0_patch = F1[
                     :,
                     :,

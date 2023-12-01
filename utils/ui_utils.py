@@ -46,6 +46,7 @@ from .drag_utils import (
     drag_diffusion_update_gen,
     free_drag_update,
     drag_diffusion_update_r,
+    get_rot_axis,
 )
 from .lora_utils import train_lora
 from .attn_utils import (
@@ -638,10 +639,10 @@ def run_drag_r(
 
     # set lora
     if lora_path == "":
-        print("applying default parameters")
+        logger.info("applying default parameters")
         model.unet.set_default_attn_processor()
     else:
-        print("applying lora: " + lora_path)
+        logger.info("applying lora: " + lora_path)
         model.unet.load_attn_procs(lora_path)
 
     # invert the source image
@@ -653,15 +654,6 @@ def run_drag_r(
         num_inference_steps=args.n_inference_step,
         num_actual_inference_steps=args.n_actual_inference_step,
     )
-    save_mask = mask*255
-    if mask.sum() == 0:
-        save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
-    saved_mask = Image.fromarray(save_mask, mode="L")
-    saved_mask.save(os.path.join(save_dir, "mask.png"))
-    mask = torch.from_numpy(mask).float() / 255.0
-    mask[mask > 0.0] = 1.0
-    mask = rearrange(mask, "h w -> 1 1 h w").cuda()
-    mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
 
     handle_points = []
     target_points = []
@@ -675,8 +667,20 @@ def run_drag_r(
             handle_points.append(cur_point)
         else:
             target_points.append(cur_point)
-    print("handle points:", handle_points)  # y,x (h,w)
-    print("target points:", target_points)  # y,x (h,w)
+    logger.info(f"handle points:, {handle_points}")  # y,x (h,w)
+    logger.info(f"target points:, {target_points}")  # y,x (h,w)
+    save_mask = mask*255
+    if mask.sum() == 0:
+        save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
+    saved_mask = Image.fromarray(save_mask, mode="L")
+    saved_mask.save(os.path.join(save_dir, "mask.png"))
+    mask = torch.from_numpy(mask).float() / 255.0
+    mask[mask > 0.0] = 1.0
+    mask = rearrange(mask, "h w -> 1 1 h w").cuda()
+    mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
+    # get rotate axis
+    axis = get_rot_axis(handle_points,target_points,mask,args)
+    logger.info(f"rotation axis: {axis}")
 
     init_code = invert_code
     init_code_orig = deepcopy(init_code)
@@ -686,7 +690,7 @@ def run_drag_r(
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
     for updated_init_code, current_points, ft in drag_diffusion_update_r(
-        model, init_code, t, handle_points, target_points, mask, args
+        model, init_code, t, handle_points, target_points,axis, mask, args
     ):
         # hijack the attention module
         # inject the reference branch to guide the generation
