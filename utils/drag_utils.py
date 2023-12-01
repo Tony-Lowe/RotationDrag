@@ -26,7 +26,7 @@ from math import pi
 import cv2
 from skimage.draw import line
 
-W = torch.tensor([[0, -1], [1, 0]])
+W = torch.tensor([[0.0, -1.0], [1.0, 0.0]])
 
 
 def point_tracking(F0, F1, handle_points, handle_points_init, args):
@@ -294,7 +294,7 @@ def point_tracking_r(
             angle0 = compute_angle(p_i, p_i0, a_i, args)
             angle_180 = angle0.item() * 180 / pi
             logger.info(f"Angle in point tracking: {angle_180}")
-            if angle_180 > -355 or angle_180 < -5:
+            if angle_180 > -355 and angle_180 < -5:
                 cpy_img = args.source_image.clone().detach()
                 rotated_img = rotate(cpy_img, angle_180)
                 lat_r = model.invert(
@@ -349,7 +349,9 @@ def get_rot_axis(handle_points, target_points, mask, args):
     :params mask: mask shape of [1,1,H,W]
     :returns: rotation axis shape of [N,2] y,x
     """
-    m = mask.squeeze().numpy()
+    m = mask.clone().detach()
+    m = m.squeeze().cpu().numpy()
+    m = np.uint8(m)
     conts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     x, y, w, h = cv2.boundingRect(conts[0])
     # W = torch.tensor([[0, -1], [1, 0]])
@@ -369,8 +371,9 @@ def get_rot_axis(handle_points, target_points, mask, args):
             pa, pb = (int(b), y), (int(b), y + h)
         axis = []
         for pt in zip(*line(*pa, *pb)):  # pt is x,y
-            if cv2.pointPolygonTest(conts[0], pt, False) == 1:
-                axis = torch.tensor([pt[1], pt[0]])  # (y,x)
+            # print(pt)
+            if cv2.pointPolygonTest(conts[0], tuple([int(pt[0]),int(pt[1])]), False) == 1:
+                axis.append(torch.tensor([pt[1], pt[0]],dtype=torch.float))  # (y,x)
         axis = torch.stack(axis)
         dist = (axis - hi).float().norm(dim=1)
         rot_ax.append(axis[dist.argmax(), :])
@@ -450,9 +453,7 @@ def drag_diffusion_update_r(
             for i in range(len(handle_points)):
                 p_i, t_i, a_i = handle_points[i], target_points[i], axis[i]
                 # skip if the distance between target and source is less than 1
-                if (t_i - p_i).norm() < 2.0 or (t_i - a_i) / (t_i - a_i).norm() == (
-                    p_i - a_i
-                ) / (p_i - a_i).norm():
+                if (t_i - p_i).norm() < 2.0 or ((t_i - a_i) / (t_i - a_i).norm() - (p_i - a_i) / (p_i - a_i).norm()).norm()==0:
                     continue
 
                 # d_i = (t_i - p_i) / (t_i - p_i).norm()
@@ -465,7 +466,7 @@ def drag_diffusion_update_r(
                     k = 0
                     b = ver_i[1]
                     r_t_i = torch.tensor([t_i[0], b])
-                    
+
                 d_i = (r_t_i - p_i) / (r_t_i - p_i).norm()
 
                 f0_patch = F1[
