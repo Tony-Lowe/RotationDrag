@@ -56,7 +56,7 @@ from .attn_utils import (
     unregister_attention_editor_diffusers,
 )
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
-from .draw_utils import draw_handle_target_points, draw_featuremap
+from .draw_utils import draw_handle_target_points, draw_featuremap,draw_handle_target_points_r
 
 
 # -------------- general UI functionality --------------
@@ -669,7 +669,7 @@ def run_drag_r(
             target_points.append(cur_point)
     logger.info(f"handle points:, {handle_points}")  # y,x (h,w)
     logger.info(f"target points:, {target_points}")  # y,x (h,w)
-    save_mask = mask*255
+    save_mask = mask * 255
     if mask.sum() == 0:
         save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
     saved_mask = Image.fromarray(save_mask, mode="L")
@@ -679,7 +679,7 @@ def run_drag_r(
     mask = rearrange(mask, "h w -> 1 1 h w").cuda()
     mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
     # get rotate axis
-    axis = get_rot_axis(handle_points,target_points,mask,args)
+    axis = get_rot_axis(handle_points, target_points, mask, args)
     logger.info(f"rotation axis: {axis}")
 
     init_code = invert_code
@@ -690,7 +690,7 @@ def run_drag_r(
     # feature shape: [1280,16,16], [1280,32,32], [640,64,64], [320,64,64]
     # update according to the given supervision
     for updated_init_code, current_points, ft in drag_diffusion_update_r(
-        model, init_code, t, handle_points, target_points,axis, mask, args
+        model, init_code, t, handle_points, target_points, axis, mask, args
     ):
         # hijack the attention module
         # inject the reference branch to guide the generation
@@ -757,6 +757,7 @@ def run_drag_r(
         # total_image.appnend(out_image)
         draw_handle_points = []
         draw_target_points = []
+        draw_ax_points = []
         for idx, point in enumerate(current_points):
             draw_cur_point = torch.tensor(
                 [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
@@ -767,8 +768,13 @@ def run_drag_r(
                 [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
             ).int()
             draw_target_points.append(draw_tar_point)
-        out_image = draw_handle_target_points(
-            out_image, draw_handle_points, draw_target_points
+        for idx, point in enumerate(axis):
+            draw_ax_point = torch.tensor(
+                [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
+            ).int()
+            draw_ax_points.append(draw_ax_point)
+        out_image = draw_handle_target_points_r(
+            out_image, draw_handle_points, draw_target_points, draw_ax_points
         )
         logger.info(f"handle Points: {draw_handle_points}")
         logger.info(f"Target Points: {draw_target_points}")
