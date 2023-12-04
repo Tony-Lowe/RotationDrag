@@ -458,11 +458,11 @@ def drag_diffusion_update_r(
                 ver_i = ((p_i - a_i) / (p_i - a_i).norm()) @ W
                 if ver_i[1] != 0:
                     k = ver_i[0] / ver_i[1]
-                    b = ver_i[0] - k * ver_i[1]
+                    b = p_i[0] - k * p_i[1]
                     r_t_i = torch.tensor([k * t_i[1] + b, t_i[1]])
                 else:
                     k = 0
-                    b = ver_i[1]
+                    b = p_i[1]
                     r_t_i = torch.tensor([t_i[0], b])
 
                 d_i = (r_t_i - p_i) / (r_t_i - p_i).norm()

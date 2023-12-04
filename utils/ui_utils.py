@@ -38,7 +38,7 @@ from drag_pipeline import DragPipeline
 from torchvision.utils import save_image
 from pytorch_lightning import seed_everything
 from loguru import logger
-from math import pi
+import json
 
 from .logger import get_logger
 from .drag_utils import (
@@ -232,6 +232,29 @@ def locate_pt(x, y, img, sel_pix):
             points = []
     return img if isinstance(img, np.ndarray) else np.array(img), sel_pix
 
+def load_config(config_path, img, sel_pix):
+    with open(config_path.name, "r") as f:
+        config = json.load(f)
+        prompt = config["prompt"]
+        points = config["point"]
+        sel_pix = points
+        points = []
+        for idx, point in enumerate(sel_pix):
+            # print(point)
+            if idx % 2 == 0:
+                # draw a red circle at the handle point
+                cv2.circle(img, tuple(point), 10, (255, 0, 0), -1)
+            else:
+                # draw a blue circle at the handle point
+                cv2.circle(img, tuple(point), 10, (0, 0, 255), -1)
+            points.append(tuple(point))
+            # draw an arrow from handle point to target point
+            if len(points) == 2:
+                cv2.arrowedLine(
+                    img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5
+                )
+                points = []
+    return img if isinstance(img, np.ndarray) else np.array(img),sel_pix,prompt
 
 # clear all handle/target points
 def undo_points(original_image, mask):
@@ -632,7 +655,11 @@ def run_drag_r(
 
     logger = get_logger(save_dir + "/result.log")
     logger.info(args)
-
+    with open(save_dir + "/config.json", "w") as f:
+        json.dump({
+            "point": points,
+            "prompt": prompt,
+        }, f)
     source_image = preprocess_image(source_image, device)
     args.source_image = source_image.clone().detach()
     image_with_clicks = preprocess_image(image_with_clicks, device)

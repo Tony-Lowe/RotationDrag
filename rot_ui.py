@@ -9,6 +9,7 @@ from utils.ui_utils import (
     run_drag_r,
     locate_pt,
     mask_from_pic,
+    load_config,
 )
 
 LENGTH = 480  # length of the square area displaying/editing images
@@ -69,12 +70,12 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp/rotation", label="LoRA path")
-            save_dir = gr.Textbox(value="./results/point_tracking", label="Save path")
-            lora_status_bar = gr.Textbox(label="display LoRA training status")
-        with gr.Row():
+            save_dir = gr.Textbox(value="/data/results/drag_rot", label="Save path")
             sample_interval = gr.Number(
                 label="Sampling Interval", value=20, visible=True
             )
+            lora_status_bar = gr.Textbox(label="display LoRA training status")
+        with gr.Row():
             x_location = gr.Number(
                 label="x location", value=0, precision=0, visible=True
             )
@@ -85,6 +86,7 @@ with gr.Blocks() as demo:
             upload_button = gr.UploadButton(
                 "Click to upload Mask", file_types=["image"]
             )
+            load_json = gr.UploadButton("Load Config", file_types=["json"])
 
         # algorithm specific parameters
         with gr.Tab("Drag Config"):
@@ -115,20 +117,6 @@ with gr.Blocks() as demo:
                 start_layer = gr.Number(
                     value=10, label="start_layer", precision=0, visible=False
                 )
-
-        # with gr.Tab("Rotation Config"):
-        #     with gr.Row():
-        #         max_angle = gr.Number(
-        #             value=30,
-        #             label="Maximun angle per step",
-        #             precision=0,
-        #         )
-        #         interval_num = gr.Number(
-        #             value=10,
-        #             label="Interval",
-        #             info="Decide the density of intervals in a maximun step",
-        #             precision=0,
-        #         )
 
         with gr.Tab("Base Model Config"):
             with gr.Row():
@@ -186,6 +174,11 @@ with gr.Blocks() as demo:
         mask_from_pic,
         [upload_button, canvas],
         [original_image, selected_points, input_image, mask],
+    )
+    load_json.upload(
+        load_config,
+        [load_json, input_image, selected_points],
+        [input_image, selected_points,prompt],
     )
     set_point.click(
         locate_pt,
