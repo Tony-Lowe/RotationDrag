@@ -178,7 +178,7 @@ with gr.Blocks() as demo:
     load_json.upload(
         load_config,
         [load_json, input_image, selected_points],
-        [input_image, selected_points,prompt],
+        [input_image, selected_points, prompt, n_pix_step],
     )
     set_point.click(
         locate_pt,

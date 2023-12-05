@@ -237,6 +237,7 @@ def load_config(config_path, img, sel_pix):
         config = json.load(f)
         prompt = config["prompt"]
         points = config["point"]
+        pix_step = config["pix_step"]
         sel_pix = points
         points = []
         for idx, point in enumerate(sel_pix):
@@ -254,7 +255,7 @@ def load_config(config_path, img, sel_pix):
                     img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5
                 )
                 points = []
-    return img if isinstance(img, np.ndarray) else np.array(img),sel_pix,prompt
+    return img if isinstance(img, np.ndarray) else np.array(img),sel_pix,prompt,pix_step
 
 # clear all handle/target points
 def undo_points(original_image, mask):
@@ -659,6 +660,7 @@ def run_drag_r(
         json.dump({
             "point": points,
             "prompt": prompt,
+            "pix_step":n_pix_step,
         }, f)
     source_image = preprocess_image(source_image, device)
     args.source_image = source_image.clone().detach()
