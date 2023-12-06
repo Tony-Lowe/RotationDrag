@@ -348,15 +348,32 @@ def get_rot_axis(handle_points, target_points, mask, args):
     :returns: rotation axis shape of [N,2] y,x
     """
     m = mask.clone().detach()
+    m_minus = -(m-1)
+    rot_ax = []
+    if m_minus.all() or m.all():
+        for idx in range(len(handle_points)):
+            axis = torch.tensor([args.sup_res_h * 0.5, args.sup_res_w * 0.5])
+            rot_ax.append(axis)
+        rot_ax = torch.stack(rot_ax)
+        return rot_ax
     m = m.squeeze().cpu().numpy()
     m = np.uint8(m)
     conts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    x, y, w, h = cv2.boundingRect(conts[0])
+    coords = []
+    for cont in conts:
+        x, y, w, h = cv2.boundingRect(cont)
+        print(x,y,w,h)
+        coords.append([x, y, w, h])
+    
     # W = torch.tensor([[0, -1], [1, 0]])
-    rot_ax = []
     for idx in range(len(handle_points)):
         hi = handle_points[idx]
         ti = target_points[idx]
+        for coord,cont in zip(coords,conts):
+            if coord[0] <= hi[1] <= coord[0] + coord[2] and coord[1] <= hi[0] <= coord[1] + coord[3]:
+                x, y, w, h = coord
+                cont_in = cont
+                break
         di = (ti - hi) / (ti - hi).norm()
         di = di @ W
         if di[1] != 0:
@@ -370,7 +387,7 @@ def get_rot_axis(handle_points, target_points, mask, args):
         axis = []
         for pt in zip(*line(*pa, *pb)):  # pt is x,y
             # print(pt)
-            if cv2.pointPolygonTest(conts[0], tuple([int(pt[0]),int(pt[1])]), False) == 1:
+            if cv2.pointPolygonTest(cont_in, tuple([int(pt[0]),int(pt[1])]), False) == 1:
                 axis.append(torch.tensor([pt[1], pt[0]],dtype=torch.float))  # (y,x)
         axis = torch.stack(axis)
         dist = (axis - hi).float().norm(dim=1)
@@ -454,18 +471,7 @@ def drag_diffusion_update_r(
                 if (t_i - p_i).norm() < 2.0 or ((t_i - a_i) / (t_i - a_i).norm() - (p_i - a_i) / (p_i - a_i).norm()).norm()==0:
                     continue
 
-                # d_i = (t_i - p_i) / (t_i - p_i).norm()
-                ver_i = ((p_i - a_i) / (p_i - a_i).norm()) @ W
-                if ver_i[1] != 0:
-                    k = ver_i[0] / ver_i[1]
-                    b = p_i[0] - k * p_i[1]
-                    r_t_i = torch.tensor([k * t_i[1] + b, t_i[1]])
-                else:
-                    k = 0
-                    b = p_i[1]
-                    r_t_i = torch.tensor([t_i[0], b])
-
-                d_i = (r_t_i - p_i) / (r_t_i - p_i).norm()
+                d_i = (t_i - p_i) / (t_i - p_i).norm()
 
                 f0_patch = F1[
                     :,

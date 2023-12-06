@@ -649,7 +649,7 @@ def run_drag_r(
         save_dir = os.path.join(save_dir, prompt.replace(" ", "_"))
     else:
         save_dir = os.path.join(save_dir, "None")
-    save_dir = os.path.join(save_dir, save_prefix)
+    save_dir = os.path.join(save_dir, save_prefix+"_ori")
 
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
@@ -699,8 +699,8 @@ def run_drag_r(
     logger.info(f"handle points:, {handle_points}")  # y,x (h,w)
     logger.info(f"target points:, {target_points}")  # y,x (h,w)
     save_mask = mask * 255
-    if mask.sum() == 0:
-        save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
+    # if mask.sum() == 0:
+    #     save_mask = np.full((mask.shape[0], mask.shape[1]), 255, dtype=np.uint8)
     saved_mask = Image.fromarray(save_mask, mode="L")
     saved_mask.save(os.path.join(save_dir, "mask.png"))
     mask = torch.from_numpy(mask).float() / 255.0
@@ -812,14 +812,14 @@ def run_drag_r(
         if not os.path.isdir(save_dir_points):
             os.makedirs(save_dir_points)
         save_pts.save(os.path.join(save_dir_points, save_prefix + "_points.png"))
-        fig_ft = draw_featuremap(ft)
-        save_dir_ft = save_dir + "/ft"
-        if not os.path.isdir(save_dir_ft):
-            os.makedirs(save_dir_ft)
-        fig_ft.savefig(
-            os.path.join(save_dir_ft, save_prefix + "_ft.png"), bbox_inches="tight"
-        )
-        plt.close(fig_ft)
+        # fig_ft = draw_featuremap(ft)
+        # save_dir_ft = save_dir + "/ft"
+        # if not os.path.isdir(save_dir_ft):
+        #     os.makedirs(save_dir_ft)
+        # fig_ft.savefig(
+        #     os.path.join(save_dir_ft, save_prefix + "_ft.png"), bbox_inches="tight"
+        # )
+        # plt.close(fig_ft)
         # drawable_init_code = updated_init_code.clone().cpu().detach()
         # fig_latent = draw_featuremap(drawable_init_code)
         # save_dir_lat = save_dir + "/latent"
