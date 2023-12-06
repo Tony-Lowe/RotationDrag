@@ -340,7 +340,7 @@ def point_tracking_r(
         return handle_points
 
 
-def get_rot_axis(handle_points, target_points, mask, args):
+def get_rot_axis(handle_points, target_points, mask, rot_ax, args):
     """
     :params handle_points: handle points shape of [N,2] y,x
     :params target_points: target points shape of [N,2] y,x
@@ -349,7 +349,6 @@ def get_rot_axis(handle_points, target_points, mask, args):
     """
     m = mask.clone().detach()
     m_minus = -(m-1)
-    rot_ax = []
     if m_minus.all() or m.all():
         for idx in range(len(handle_points)):
             axis = torch.tensor([args.sup_res_h * 0.5, args.sup_res_w * 0.5])
@@ -362,11 +361,14 @@ def get_rot_axis(handle_points, target_points, mask, args):
     coords = []
     for cont in conts:
         x, y, w, h = cv2.boundingRect(cont)
-        print(x,y,w,h)
+        # print(x,y,w,h)
         coords.append([x, y, w, h])
     
     # W = torch.tensor([[0, -1], [1, 0]])
     for idx in range(len(handle_points)):
+        if idx < len(rot_ax):
+            continue
+        
         hi = handle_points[idx]
         ti = target_points[idx]
         for coord,cont in zip(coords,conts):

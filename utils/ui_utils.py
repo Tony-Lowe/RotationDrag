@@ -686,6 +686,7 @@ def run_drag_r(
 
     handle_points = []
     target_points = []
+    axis = []
     # here, the point is in x,y coordinate
     for idx, point in enumerate(points):
         cur_point = torch.tensor(
@@ -695,7 +696,11 @@ def run_drag_r(
         if idx % 2 == 0:
             handle_points.append(cur_point)
         else:
-            target_points.append(cur_point)
+            if (cur_point == handle_points[-1]).all():
+                axis.append(cur_point)
+                handle_points.pop()
+            else:
+                target_points.append(cur_point)
     logger.info(f"handle points:, {handle_points}")  # y,x (h,w)
     logger.info(f"target points:, {target_points}")  # y,x (h,w)
     save_mask = mask * 255
@@ -708,7 +713,7 @@ def run_drag_r(
     mask = rearrange(mask, "h w -> 1 1 h w").cuda()
     mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
     # get rotate axis
-    axis = get_rot_axis(handle_points, target_points, mask, args)
+    axis = get_rot_axis(handle_points, target_points, mask,axis, args)
     logger.info(f"rotation axis: {axis}")
 
     init_code = invert_code
