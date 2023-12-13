@@ -39,7 +39,8 @@ with gr.Blocks() as demo:
                     height=LENGTH,
                     width=LENGTH,
                 )  # for mask painting
-                train_lora_button = gr.Button("Train LoRA")
+
+                use_lora = gr.Checkbox(label="Use LoRA")
             with gr.Column():
                 gr.Markdown(
                     """<p style="text-align: center; font-size: 20px">Click Points</p>"""
@@ -74,7 +75,7 @@ with gr.Blocks() as demo:
             sample_interval = gr.Number(
                 label="Sampling Interval", value=20, visible=True
             )
-            lora_status_bar = gr.Textbox(label="display LoRA training status")
+
         with gr.Row():
             x_location = gr.Number(
                 label="x location", value=0, precision=0, visible=True
@@ -185,21 +186,6 @@ with gr.Blocks() as demo:
         [x_location, y_location, input_image, selected_points],
         [input_image, selected_points],
     )
-    train_lora_button.click(
-        train_lora_interface,
-        [
-            original_image,
-            prompt,
-            model_path,
-            vae_path,
-            lora_path,
-            lora_step,
-            lora_lr,
-            lora_batch_size,
-            lora_rank,
-        ],
-        [lora_status_bar],
-    )
     run_button.click(
         run_drag_r,
         [
@@ -220,6 +206,11 @@ with gr.Blocks() as demo:
             save_dir,
             ft_layer_idx,
             sample_interval,
+            use_lora,
+            lora_step,
+            lora_lr,
+            lora_batch_size,
+            lora_rank,
         ],
         [output_image],
     )

@@ -56,7 +56,11 @@ from .attn_utils import (
     unregister_attention_editor_diffusers,
 )
 from .freeu_utils import register_free_upblock2d, register_free_crossattn_upblock2d
-from .draw_utils import draw_handle_target_points, draw_featuremap,draw_handle_target_points_r
+from .draw_utils import (
+    draw_handle_target_points,
+    draw_featuremap,
+    draw_handle_target_points_r,
+)
 
 
 # -------------- general UI functionality --------------
@@ -232,6 +236,7 @@ def locate_pt(x, y, img, sel_pix):
             points = []
     return img if isinstance(img, np.ndarray) else np.array(img), sel_pix
 
+
 def load_config(config_path, img, sel_pix):
     with open(config_path.name, "r") as f:
         config = json.load(f)
@@ -255,7 +260,13 @@ def load_config(config_path, img, sel_pix):
                     img, points[0], points[1], (255, 255, 255), 4, tipLength=0.5
                 )
                 points = []
-    return img if isinstance(img, np.ndarray) else np.array(img),sel_pix,prompt,pix_step
+    return (
+        img if isinstance(img, np.ndarray) else np.array(img),
+        sel_pix,
+        prompt,
+        pix_step,
+    )
+
 
 # clear all handle/target points
 def undo_points(original_image, mask):
@@ -294,35 +305,6 @@ def train_lora_interface(
         lora_batch_size,
         lora_rank,
         progress,
-    )
-    return "Training LoRA Done!"
-
-
-def train_lora_interface_free(
-    original_image,
-    prompt,
-    model_path,
-    vae_path,
-    lora_path,
-    lora_step,
-    lora_lr,
-    lora_batch_size,
-    lora_rank,
-    lora_resolution=512,
-    progress=gr.Progress(),
-):
-    train_lora(
-        original_image,
-        prompt,
-        model_path,
-        vae_path,
-        lora_path,
-        lora_step,
-        lora_lr,
-        lora_batch_size,
-        lora_rank,
-        progress,
-        lora_resolution,
     )
     return "Training LoRA Done!"
 
@@ -591,7 +573,24 @@ def run_drag_r(
     save_dir="./results",
     unet_feature_idx=[3],
     sample_interval=10,
+    use_lora=True,
+    lora_step=60,
+    lora_lr=0.0005,
+    lora_batch_size=4,
+    lora_rank=16,
 ):
+    if use_lora:
+        train_lora(
+            source_image,
+            prompt,
+            model_path,
+            vae_path,
+            lora_path,
+            lora_step,
+            lora_lr,
+            lora_batch_size,
+            lora_rank,
+        )
     # initialize model
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     scheduler = DDIMScheduler(
@@ -649,7 +648,7 @@ def run_drag_r(
         save_dir = os.path.join(save_dir, prompt.replace(" ", "_"))
     else:
         save_dir = os.path.join(save_dir, "None")
-    save_dir = os.path.join(save_dir, save_prefix+"_ori")
+    save_dir = os.path.join(save_dir, save_prefix + "_ori")
 
     if not os.path.isdir(save_dir):
         os.makedirs(save_dir)
@@ -657,11 +656,14 @@ def run_drag_r(
     logger = get_logger(save_dir + "/result.log")
     logger.info(args)
     with open(save_dir + "/config.json", "w") as f:
-        json.dump({
-            "point": points,
-            "prompt": prompt,
-            "pix_step":n_pix_step,
-        }, f)
+        json.dump(
+            {
+                "point": points,
+                "prompt": prompt,
+                "pix_step": n_pix_step,
+            },
+            f,
+        )
     source_image = preprocess_image(source_image, device)
     args.source_image = source_image.clone().detach()
     image_with_clicks = preprocess_image(image_with_clicks, device)
@@ -713,7 +715,7 @@ def run_drag_r(
     mask = rearrange(mask, "h w -> 1 1 h w").cuda()
     mask = F.interpolate(mask, (args.sup_res_h, args.sup_res_w), mode="nearest")
     # get rotate axis
-    axis = get_rot_axis(handle_points, target_points, mask,axis, args)
+    axis = get_rot_axis(handle_points, target_points, mask, axis, args)
     logger.info(f"rotation axis: {axis}")
 
     init_code = invert_code
@@ -840,11 +842,6 @@ def run_drag_r(
 # -------------------------------------------------------
 
 
-def change_stop_state():
-    global stop_flag
-    stop_flag = True
-
-
 def run_freedrag(
     source_image,
     image_with_clicks,
@@ -866,7 +863,24 @@ def run_freedrag(
     save_dir="./results",
     resolution=512,
     unet_feature_idx=[3],
+    use_lora=True,
+    lora_step=60,
+    lora_lr=0.0005,
+    lora_batch_size=4,
+    lora_rank=16,
 ):
+    if use_lora:
+        train_lora(
+            source_image,
+            prompt,
+            model_path,
+            vae_path,
+            lora_path,
+            lora_step,
+            lora_lr,
+            lora_batch_size,
+            lora_rank,
+        )
     # initialize model
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     scheduler = DDIMScheduler(
@@ -1071,10 +1085,10 @@ def run_freedrag(
                 [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
             ).int()
             draw_target_points.append(draw_tar_point)
-        out_image = draw_handle_target_points(
-            out_image, draw_handle_points, draw_target_points
-        )
-        logger.info(f"Final handle Points: {draw_handle_points}")
+        # out_image = draw_handle_target_points(
+        #     out_image, draw_handle_points, draw_target_points
+        # )
+        logger.info(f"handle Points: {draw_handle_points}")
         logger.info(f"Target Points: {draw_target_points}")
         save_pts = PIL.Image.fromarray(out_image)
         save_dir_points = save_dir + "/points"
@@ -1098,9 +1112,7 @@ def run_freedrag(
         #     os.path.join(save_dir_lat, save_prefix + "_lat.png"), bbox_inches="tight"
         # )
         # plt.close(fig_latent)
-        yield out_image, gr.Button.update(interactive=True)
-        if stop_flag:
-            break
+        yield out_image
 
 
 # ----------- dragging generated image utils -----------

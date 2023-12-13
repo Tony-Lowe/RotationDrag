@@ -25,9 +25,9 @@ from utils.ui_utils import clear_all_gen, store_img_gen, gen_img, run_drag_gen
 from utils.ui_utils import (
     clear_all_free,
     store_img_free,
-    train_lora_interface_free,
     run_freedrag,
-    change_stop_state,
+    load_config,
+    mask_from_pic,
 )
 
 LENGTH = 480  # length of the square area displaying/editing images
@@ -186,7 +186,7 @@ with gr.Blocks() as demo:
                     height=LENGTH,
                     width=LENGTH,
                 )  # for mask painting
-                train_lora_button_free = gr.Button("Train LoRA")
+                use_lora_free = gr.Checkbox(label="Use LoRA")
             with gr.Column():
                 gr.Markdown(
                     """<p style="text-align: center; font-size: 20px">Click Points</p>"""
@@ -213,14 +213,19 @@ with gr.Blocks() as demo:
                 with gr.Row():
                     run_button_free = gr.Button("Run")
                     clear_all_button_free = gr.Button("Clear All")
-        stop_free = gr.Button("Stop", interactive=False, visible=False)
 
         # general parameters
         with gr.Row():
             prompt_free = gr.Textbox(label="Prompt")
             lora_path_free = gr.Textbox(value="./lora_tmp", label="LoRA path")
-            save_dir_free = gr.Textbox(value="./results/free", label="Save path")
+            save_dir_free = gr.Textbox(value="/data/results/free", label="Save path")
             lora_status_bar_free = gr.Textbox(label="display LoRA training status")
+
+        with gr.Row():
+            upload_button = gr.UploadButton(
+                "Click to upload Mask", file_types=["image"]
+            )
+            load_json = gr.UploadButton("Load Config", file_types=["json"])
 
         # algorithm specific parameters
         with gr.Tab("Drag Config"):
@@ -495,26 +500,20 @@ with gr.Blocks() as demo:
         [input_image_free, selected_points_free],
         [input_image_free],
     )
+    upload_button.upload(
+        mask_from_pic,
+        [upload_button, canvas_free],
+        [original_image_free, selected_points_free, input_image_free, mask_free],
+    )
+    load_json.upload(
+        load_config,
+        [load_json, input_image_free, selected_points_free],
+        [input_image_free, selected_points_free, prompt_free, n_pix_step_free],
+    )
     undo_button_free.click(
         undo_points,
         [original_image_free, mask_free],
         [input_image_free, selected_points_free],
-    )
-    train_lora_button_free.click(
-        train_lora_interface_free,
-        [
-            original_image_free,
-            prompt_free,
-            model_path_free,
-            vae_path_free,
-            lora_path_free,
-            lora_step_free,
-            lora_lr_free,
-            lora_batch_size_free,
-            lora_rank_free,
-            lora_resolution_free,
-        ],
-        [lora_status_bar_free],
     )
     run_button_free.click(
         run_freedrag,
@@ -539,11 +538,14 @@ with gr.Blocks() as demo:
             save_dir_free,
             lora_resolution_free,
             ft_layer_idx_free,
+            use_lora_free,
+            lora_step_free,
+            lora_lr_free,
+            lora_batch_size_free,
+            lora_rank_free,
         ],
-        [output_image_free, stop_free],
+        [output_image_free],
     )
-
-    stop_free.click(change_stop_state)
 
     clear_all_button.click(
         clear_all_free,
