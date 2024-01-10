@@ -547,7 +547,7 @@ with gr.Blocks() as demo:
         [output_image_free],
     )
 
-    clear_all_button.click(
+    clear_all_button_free.click(
         clear_all_free,
         [gr.Number(value=LENGTH, visible=False, precision=0)],
         [
