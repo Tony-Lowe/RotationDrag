@@ -1,18 +1,13 @@
 <p align="center">
-  <h1 align="center">DragDiffusion: Harnessing Diffusion Models for Interactive Point-based Image Editing</h1>
+  <h1 align="center">RotationDrag: Point-based Image Editing with Rotated Diffusion Features</h1>
   <p align="center">
-    <a href="https://yujun-shi.github.io/"><strong>Yujun Shi</strong></a>
+    <strong>Minxing Luo</strong>
     &nbsp;&nbsp;
-    <strong>Chuhui Xue</strong>
+    <strong>Wentao Cheng</strong>
     &nbsp;&nbsp;
-    <strong>Jiachun Pan</strong>
-    &nbsp;&nbsp;
-    <strong>Wenqing Zhang</strong>
-    &nbsp;&nbsp;
-    <a href="https://vyftan.github.io/"><strong>Vincent Y. F. Tan</strong></a>
-    &nbsp;&nbsp;
-    <a href="https://songbai.site/"><strong>Song Bai</strong></a>
+    <strong>Jian Yang</strong>
   </p>
+  <!---
   <br>
   <div align="center">
     <img src="./release-doc/asset/counterfeit-1.png", width="700">
@@ -29,25 +24,9 @@
   </p>
   <br>
 </p>
-
+--->
 ## Disclaimer
 This is a research project, NOT a commercial product.
-
-## News and Update
-* [Oct 23rd] Code and data of DragBench are released! Please check README under "drag_bench_evaluation" for details.
-* [Oct 16th] Integrate [FreeU](https://chenyangsi.top/FreeU/) when dragging generated image.
-* [Oct 3rd] Speeding up LoRA training when editing real images. (**Now only around 20s on A100!**)
-* [Sept 3rd] v0.1.0 Release.
-  * Enable **Dragging Diffusion-Generated Images.**
-  * Introducing a new guidance mechanism that **greatly improve quality of dragging results.** (Inspired by [MasaCtrl](https://ljzycmd.github.io/projects/MasaCtrl/))
-  * Enable Dragging Images with arbitrary aspect ratio
-  * Adding support for DPM++Solver (Generated Images)
-* [July 18th] v0.0.1 Release.
-  * Integrate LoRA training into the User Interface. **No need to use training script and everything can be conveniently done in UI!**
-  * Optimize User Interface layout.
-  * Enable using better VAE for eyes and faces (See [this](https://stable-diffusion-art.com/how-to-use-vae/))
-* [July 8th] v0.0.0 Release.
-  * Implement Basic function of DragDiffusion
 
 ## Installation
 
@@ -56,16 +35,14 @@ It is recommended to run our code on a Nvidia GPU with a linux system. We have n
 To install the required libraries, simply run the following command:
 ```
 conda env create -f environment.yaml
-conda activate dragdiff
+conda activate rotdrag
 ```
 
-## Run DragDiffusion
+## Run RotationDrag
 To start with, in command line, run the following to start the gradio user interface:
 ```
-python3 drag_ui.py
+python3 rot_ui.py
 ```
-
-You may check our [GIF above](https://github.com/Yujun-Shi/DragDiffusion/blob/main/release-doc/asset/github_video.gif) that demonstrate the usage of UI in a step-by-step manner.
 
 Basically, it consists of the following steps:
 
@@ -80,6 +57,7 @@ Basically, it consists of the following steps:
 * Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
 * Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
 
+<!---
 ### Case 2: Dragging Diffusion-Generated Images
 #### 1) generate an image
 * Fill in the generation parameters (e.g., positive/negative prompt, parameters under Generation Config & FreeU Parameters).
@@ -91,7 +69,6 @@ Basically, it consists of the following steps:
 * Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
 
 
-<!---
 ## Explanation for parameters in the user interface:
 #### General Parameters
 |Parameter|Explanation|
@@ -126,7 +103,7 @@ These parameters are collapsed by default as we normally do not have to tune the
 |LoRA rank|Rank of the LoRA (do not have to tune in most cases).|
 
 --->
-
+<!---
 ## License
 Code related to the DragDiffusion algorithm is under Apache 2.0 license.
 
@@ -159,4 +136,4 @@ This work is inspired by the amazing [DragGAN](https://vcai.mpi-inf.mpg.de/proje
 ## Common Issues and Solutions
 1) For users struggling in loading models from huggingface due to internet constraint, please 1) follow this [links](https://zhuanlan.zhihu.com/p/475260268) and download the model into the directory "local\_pretrained\_models"; 2) Run "drag\_ui.py" and select the directory to your pretrained model in "Algorithm Parameters -> Base Model Config -> Diffusion Model Path".
 
-
+--->
