@@ -1,4 +1,4 @@
-name: dragdiff
+name: rotdrag
 channels:
   - pytorch
   - defaults
