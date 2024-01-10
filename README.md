@@ -2,18 +2,18 @@
   <h1 align="center">RotationDrag: Point-based Image Editing with Rotated Diffusion Features</h1>
   <p align="center">
     <strong>Minxing Luo</strong>
-    &nbsp;&nbsp;
+      
     <strong>Wentao Cheng</strong>
-    &nbsp;&nbsp;
+      
     <strong>Jian Yang</strong>
   </p>
-  <!---
   <br>
   <div align="center">
     <img src="./release-doc/asset/counterfeit-1.png", width="700">
     <img src="./release-doc/asset/counterfeit-2.png", width="700">
     <img src="./release-doc/asset/majix_realistic.png", width="700">
   </div>
+  <!---
   <div align="center">
     <img src="./release-doc/asset/github_video.gif", width="700">
   </div>
@@ -23,10 +23,11 @@
     <a href="https://twitter.com/YujunPeiyangShi"><img alt='Twitter' src="https://img.shields.io/twitter/follow/YujunPeiyangShi?label=%40YujunPeiyangShi"></a>
   </p>
   <br>
+  --->
 </p>
---->
 
 ## Disclaimer
+
 This is a research project, NOT a commercial product.
 
 ## Installation
@@ -34,13 +35,16 @@ This is a research project, NOT a commercial product.
 It is recommended to run our code on a Nvidia GPU with a linux system. We have not yet tested on other configurations. Currently, it requires around 14 GB GPU memory to run our method. We will continue to optimize memory efficiency
 
 To install the required libraries, simply run the following command:
+
 ```
 conda env create -f environment.yaml
 conda activate rotdrag
 ```
 
 ## Run RotationDrag
+
 To start with, in command line, run the following to start the gradio user interface:
+
 ```
 python3 rot_ui.py
 ```
@@ -48,12 +52,15 @@ python3 rot_ui.py
 Basically, it consists of the following steps:
 
 ### Case 1: Dragging Input Real Images
+
 #### 1) train a LoRA
+
 * Drop our input image into the left-most box.
 * Input a prompt describing the image in the "prompt" field
-* Click the "Train LoRA" button to train a LoRA given the input image
+* Click the "Train LoRA" button to train a LoRA given the input image before our algorithm.
 
 #### 2) do "drag" editing
+
 * Draw a mask in the left-most box to specify the editable areas.
 * Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
 * Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
@@ -104,6 +111,7 @@ These parameters are collapsed by default as we normally do not have to tune the
 |LoRA rank|Rank of the LoRA (do not have to tune in most cases).|
 
 --->
+
 <!---
 ## License
 Code related to the DragDiffusion algorithm is under Apache 2.0 license.
