@@ -809,6 +809,8 @@ def run_drag_r(
                 [point[0] / args.sup_res_h * full_h, point[1] / args.sup_res_w * full_w]
             ).int()
             draw_ax_points.append(draw_ax_point)
+        save_out = Image.fromarray(out_image)
+        save_out.save(os.path.join(save_dir, save_prefix + ".png"))
         out_image = draw_handle_target_points_r(
             out_image, draw_handle_points, draw_target_points, draw_ax_points
         )

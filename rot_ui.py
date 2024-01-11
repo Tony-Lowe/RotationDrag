@@ -18,7 +18,7 @@ with gr.Blocks() as demo:
     with gr.Row():
         gr.Markdown(
             """
-        # DragDiffusion in rotation
+        # RotationDrag
         """
         )
         # UI components for editing real images
