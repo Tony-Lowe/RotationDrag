@@ -5,7 +5,6 @@ from utils.ui_utils import get_points, undo_points
 from utils.ui_utils import (
     clear_all,
     store_img,
-    train_lora_interface,
     run_drag_r,
     locate_pt,
     mask_from_pic,
