@@ -32,7 +32,7 @@ This is a research project, NOT a commercial product.
 
 ## Installation
 
-It is recommended to run our code on a Nvidia GPU with a linux system. We have not yet tested on other configurations. Currently, it requires around 14 GB GPU memory to run our method. We will continue to optimize memory efficiency
+It is recommended to run our code on a Nvidia GPU with a linux system. We have not yet tested on other configurations. Currently, it requires around 14 GB GPU memory to run our method.
 
 To install the required libraries, simply run the following command:
 
@@ -51,15 +51,13 @@ python3 rot_ui.py
 
 Basically, it consists of the following steps:
 
-### Case 1: Dragging Input Real Images
-
-#### 1) train a LoRA
+1. train a LoRA
 
 * Drop our input image into the left-most box.
 * Input a prompt describing the image in the "prompt" field
-* Click the "Train LoRA" button to train a LoRA given the input image before our algorithm.
+* Click the "Use LoRA" button to train a LoRA given the input image before our algorithm.
 
-#### 2) do "drag" editing
+2. do "drag" editing
 
 * Draw a mask in the left-most box to specify the editable areas.
 * Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
