@@ -65,5 +65,5 @@ Basically, it consists of the following steps:
 
 ## Acknowledgement
 
-This work is inspired by the amazing DragDiffusion and the code largely borrowed from DragDiffusion. Huge shout-out to all the amazing open source diffusion models and libraries.
+This work is inspired by the amazing DragDiffusion, and the code is largely borrowed from it. A huge shout-out to all the amazing open source diffusion models and libraries.
 
