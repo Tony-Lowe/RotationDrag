@@ -63,3 +63,7 @@ Basically, it consists of the following steps:
 * Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
 * Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
 
+## Acknowledgement
+
+This work is inspired by the amazing DragDiffusion and the code largely borrowed from DragDiffusion. Huge shout-out to all the amazing open source diffusion models and libraries.
+
