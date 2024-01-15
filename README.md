@@ -25,7 +25,9 @@
   <br>
   --->
 </p>
-
+<p align="center">
+    <a href="https://arxiv.org/abs/2401.06442"><img alt='arXiv' src="https://img.shields.io/badge/arXiv-2401.06442-b31b1b.svg"></a>
+</p>p
 ## Disclaimer
 
 This is a research project, NOT a commercial product.
