@@ -65,6 +65,16 @@ Basically, it consists of the following steps:
 * Click handle and target points in the middle box. Also, you may reset all points by clicking "Undo point".
 * Click the "Run" button to run our algorithm. Edited results will be displayed in the right-most box.
 
+## Run diffusion version of Freedrag in our implementation
+
+To start with, in command line, run the following to start the gradio user interface:
+
+```
+python3 drag_ui.py
+```
+
+The following process is the same as RotationDrag.
+
 ## Acknowledgement
 
 This work is inspired by the amazing DragDiffusion, and the code is largely borrowed from it. A huge shout-out to all the amazing open source diffusion models and libraries.
