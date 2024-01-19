@@ -70,7 +70,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             prompt = gr.Textbox(label="Prompt")
             lora_path = gr.Textbox(value="./lora_tmp/rotation", label="LoRA path")
-            save_dir = gr.Textbox(value="/data/results/drag_rot", label="Save path")
+            save_dir = gr.Textbox(value="./results/rot", label="Save path")
             sample_interval = gr.Number(
                 label="Sampling Interval", value=20, visible=True
             )
